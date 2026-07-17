@@ -20,7 +20,9 @@ jobs:
         run: python -m unittest discover tests -v
       - name: Smoke test (examples)
         run: |
-          python remedify.py examples/trivy-ubuntu.json
-          python remedify.py examples/trivy-rhel.json --min-severity HIGH
-          python remedify.py examples/trivy-real-ubuntu1804.json --format shell
-          python remedify.py examples/trivy-ubuntu.json --format json | python -m json.tool > /dev/null
+          for f in examples/trivy-*.json; do
+            echo "=== $f ==="
+            python remedify.py "$f"
+            python remedify.py "$f" --format shell > /dev/null
+            python remedify.py "$f" --format json | python -m json.tool > /dev/null
+          done

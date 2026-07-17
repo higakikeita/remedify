@@ -1,4 +1,25 @@
-# v0.2 Backlog
+# Backlog
+
+## Done in v0.2
+
+- ✅ Source-package grouping (1 consolidated step instead of N commands)
+- ✅ "No fix available" section using Trivy's `Status` field
+- ✅ EOL / ESM awareness (static table; see v0.3 below)
+- ✅ Advisory family dedup (USN-4142-1/-2 → one entry)
+
+## v0.3 candidates
+
+- EOL data from [endoflife.date](https://endoflife.date) API instead of static table
+- Grype JSON parser
+- Sysdig vulnerability report parser
+- Source-package grouping via PURL metadata (current heuristic: identical
+  installed+fixed version pair)
+- `will_not_fix` / `end_of_life` statuses: real-data test fixtures
+- Windows (KB / winget)
+
+---
+
+# Original v0.2 notes (from first real-data run)
 
 Findings from running the PoC against real Trivy output
 (`aquasecurity/trivy` integration-test golden file, ubuntu-1804 image).

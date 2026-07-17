@@ -38,25 +38,91 @@ $ remedify scan.json
 
 They are complementary: containers → copa, everything else → remedify.
 
-## Features (PoC, v0.1)
+## Features (v0.2)
 
 - **Input**: Trivy JSON (`trivy image|fs|rootfs --format json`)
 - **Distro-aware commands**: apt (Ubuntu/Debian), dnf/yum (RHEL/Rocky/Alma/Amazon/Fedora), apk (Alpine), zypper (SUSE)
+- **Consolidated steps**: binary packages from one source package (e.g. e2fsprogs + libcom-err2 + libext2fs2 + libss2) become **one** command, not four
+- **"No fix available" section**: findings without a fixed version are reported with their vendor status (`affected`, `will_not_fix`, `end_of_life`) — never silently dropped
+- **EOL awareness**: detects end-of-life distro versions and warns when fixes require ESM enrollment or an OS migration
 - **Backport detection**: flags vendor backports (`~ubuntu`, `.el9`, `.amzn2`, `+esm`, `+deb`) and explains why the version won't match upstream
 - **Operational hints**: kernel → reboot required; glibc → reboot recommended; OpenSSL → restart linked services
-- **Advisory surfacing**: vendor sources first (USN, RHSA, ALAS, DSA), NVD as fallback
+- **Advisory surfacing**: vendor sources first (USN, RHSA, ALAS, DSA), NVD as fallback, near-duplicates collapsed
 - **Three output formats**: Markdown report, executable shell script, JSON
 - **Zero dependencies**: single-file Python, stdlib only
 
+## What you get
+
+**1. A prioritized Markdown report** — consolidated steps instead of per-package noise:
+
+```markdown
+# Remediation plan: `prod-web-host (ubuntu 18.04)`
+
+- **Remediation steps**: 1 (covering 4 packages)
+- **No fix available**: 1 packages
+
+> ⚠️ **EOL**: Ubuntu 18.04 standard repositories no longer receive security
+> updates. Fixes for many CVEs require Ubuntu Pro (ESM).
+
+## e2fsprogs (+3 related packages)  `MEDIUM`
+
+- Packages: `e2fsprogs`, `libcom-err2`, `libext2fs2`, `libss2` (same source, one update)
+- Installed: `1.44.1-1ubuntu1.1` -> Fix: `1.44.1-1ubuntu1.2`
+- **Vendor backport (Ubuntu)**: fixed version won't match upstream — trust the advisory.
+
+    apt-get install --only-upgrade e2fsprogs=1.44.1-1ubuntu1.2 libcom-err2=1.44.1-1ubuntu1.2 ...
+
+- Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-4142-1)
+
+## No fix available
+
+- **bash** `LOW` (CVE-2019-18276) — No vendor fix released yet
 ```
-usage: remedify scan.json [--format {markdown,shell,json}] [--min-severity {LOW,MEDIUM,HIGH,CRITICAL}]
+
+**2. A reviewable shell script** (`--format shell`) — commented, `set -euo pipefail`, reboot reminder at the end:
+
+```bash
+#!/usr/bin/env bash
+# Review before running. Run as root or with sudo.
+apt-get update
+
+# e2fsprogs, libcom-err2, ... 1.44.1-1ubuntu1.1 -> 1.44.1-1ubuntu1.2 [MEDIUM] CVE-2019-5094
+#   NOTE: Ubuntu vendor backport — version differs from upstream
+apt-get install --only-upgrade e2fsprogs=1.44.1-1ubuntu1.2 ...
 ```
+
+**3. Machine-readable JSON** (`--format json`) — feed it to your ticketing system, chatbot, or AI agent.
+
+## CLI reference
+
+| Option | Values | Default | Purpose |
+|---|---|---|---|
+| `--format` | `markdown` `shell` `json` | `markdown` | Output format |
+| `--min-severity` | `LOW` `MEDIUM` `HIGH` `CRITICAL` | show all | Filter remediation steps (unfixed findings are **never** hidden) |
+| `--version` | | | Print version |
+
+Input via file path or stdin (`-`).
+
+## Supported distros
+
+| Family | Package manager | Backport detection | EOL detection |
+|---|---|---|---|
+| Ubuntu / Debian | `apt` | ✅ (`~ubuntu`, `+deb`, `+esm`) | ✅ (ESM guidance) |
+| RHEL / Rocky / Alma / Oracle / Fedora | `dnf` | ✅ (`.el9`) | — |
+| CentOS | `dnf` | ✅ | ✅ (migration guidance) |
+| Amazon Linux | `yum` (AL2) / `dnf` | ✅ (`.amzn2`) | ✅ (AL1) |
+| Alpine | `apk` | — | — |
+| SUSE / openSUSE | `zypper` | — | — |
+| Anything else | — | degrades gracefully: findings listed without commands | |
 
 Try it with the bundled examples:
 
 ```
-python3 remedify.py examples/trivy-ubuntu.json
+python3 remedify.py examples/trivy-real-ubuntu1804.json   # real Trivy output: grouping + EOL + no-fix
 python3 remedify.py examples/trivy-rhel.json --min-severity HIGH
+python3 remedify.py examples/trivy-amazon2.json           # yum + ALAS advisories
+python3 remedify.py examples/trivy-alpine.json            # apk
+python3 remedify.py examples/trivy-centos7-eol.json       # EOL + will_not_fix / end_of_life
 python3 remedify.py examples/trivy-ubuntu.json --format shell > fix.sh
 ```
 

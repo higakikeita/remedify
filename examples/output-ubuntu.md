@@ -1,52 +1,27 @@
-# Remediation plan: `prod-web-host (Ubuntu 22.04)`
+# Remediation plan: `testdata/fixtures/images/ubuntu-1804.tar.gz`
 
-- **OS**: ubuntu 22.04
+- **OS**: ubuntu 18.04
 - **Package manager**: apt
-- **Fixable packages**: 4
+- **Remediation steps**: 1 (covering 4 packages)
+- **No fix available**: 1 packages
 
-## libc6  `CRITICAL`
+> ⚠️ **EOL**: Ubuntu 18.04 standard repositories no longer receive security updates. Fixes for many CVEs require Ubuntu Pro (ESM). Commands below may fail to find the fixed version without ESM enrollment.
 
-- Installed: `2.35-0ubuntu3.6` -> Fix: `2.35-0ubuntu3.8`
-- CVEs: CVE-2024-33599
+## e2fsprogs (+3 related packages)  `MEDIUM`
+
+- Packages: `e2fsprogs`, `libcom-err2`, `libext2fs2`, `libss2` (same source, one update)
+- Installed: `1.44.1-1ubuntu1.1` -> Fix: `1.44.1-1ubuntu1.2`
+- CVEs: CVE-2019-5094
 - **Vendor backport (Ubuntu)**: the fixed version is a distro backport — it will not match the upstream version number. Scanners comparing against upstream may still flag it; trust the vendor advisory below.
 
 ```bash
-apt-get install --only-upgrade libc6=2.35-0ubuntu3.8
+apt-get install --only-upgrade e2fsprogs=1.44.1-1ubuntu1.2 libcom-err2=1.44.1-1ubuntu1.2 libext2fs2=1.44.1-1ubuntu1.2 libss2=1.44.1-1ubuntu1.2
 ```
-- ⚠️ libc update: reboot strongly recommended (all processes link against it).
-- Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6762-1) / [NVD](https://nvd.nist.gov/vuln/detail/CVE-2024-33599)
+- Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-4142-1) / [Debian DSA](https://www.debian.org/security/2019/dsa-4535) / [Red Hat CVE](https://access.redhat.com/security/cve/CVE-2019-5094)
 
-## libssl3  `HIGH`
+## No fix available
 
-- Installed: `3.0.2-0ubuntu1.15` -> Fix: `3.0.2-0ubuntu1.18`
-- CVEs: CVE-2024-5535, CVE-2024-6119
-- **Vendor backport (Ubuntu)**: the fixed version is a distro backport — it will not match the upstream version number. Scanners comparing against upstream may still flag it; trust the vendor advisory below.
+These findings have no fixed version yet. Options: mitigate, accept the risk with justification, or track the vendor advisory.
 
-```bash
-apt-get install --only-upgrade libssl3=3.0.2-0ubuntu1.18
-```
-- ⚠️ Restart services that link against OpenSSL (nginx, sshd, etc.).
-- Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6986-1) / [Ubuntu USN](https://ubuntu.com/security/notices/USN-6903-1) / [NVD](https://nvd.nist.gov/vuln/detail/CVE-2024-6119)
-
-## linux-image-generic  `HIGH`
-
-- Installed: `5.15.0.105.102` -> Fix: `5.15.0.107.104`
-- CVEs: CVE-2024-26923
-
-```bash
-apt-get install --only-upgrade linux-image-generic=5.15.0.107.104
-```
-- ⚠️ Kernel update: reboot required.
-- Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6767-1)
-
-## curl  `MEDIUM`
-
-- Installed: `7.81.0-1ubuntu1.15` -> Fix: `7.81.0-1ubuntu1.16`
-- CVEs: CVE-2024-2398
-- **Vendor backport (Ubuntu)**: the fixed version is a distro backport — it will not match the upstream version number. Scanners comparing against upstream may still flag it; trust the vendor advisory below.
-
-```bash
-apt-get install --only-upgrade curl=7.81.0-1ubuntu1.16
-```
-- Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6718-1)
+- **bash** `LOW` (CVE-2019-18276) — No vendor fix released yet
 

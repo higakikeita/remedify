@@ -1,0 +1,40 @@
+{
+  "ArtifactName": "amazonlinux:2",
+  "Metadata": {
+    "OS": { "Family": "amazon", "Name": "2 (Karoo)" }
+  },
+  "Results": [
+    {
+      "Target": "amazonlinux:2 (amazon 2 (Karoo))",
+      "Class": "os-pkgs",
+      "Type": "amazon",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-26923",
+          "PkgName": "kernel",
+          "InstalledVersion": "4.14.336-257.566.amzn2",
+          "FixedVersion": "4.14.343-261.564.amzn2",
+          "Status": "fixed",
+          "Severity": "HIGH",
+          "Title": "kernel: af_unix garbage collector race",
+          "References": [
+            "https://alas.aws.amazon.com/AL2/ALAS-2024-2542.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-26923"
+          ]
+        },
+        {
+          "VulnerabilityID": "CVE-2024-28182",
+          "PkgName": "nghttp2",
+          "InstalledVersion": "1.41.0-1.amzn2",
+          "FixedVersion": "1.41.0-2.amzn2",
+          "Status": "fixed",
+          "Severity": "MEDIUM",
+          "Title": "nghttp2: CONTINUATION frames DoS",
+          "References": [
+            "https://alas.aws.amazon.com/AL2/ALAS-2024-2519.html"
+          ]
+        }
+      ]
+    }
+  ]
+}

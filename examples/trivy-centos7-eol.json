@@ -1,0 +1,46 @@
+{
+  "ArtifactName": "centos:7",
+  "Metadata": {
+    "OS": { "Family": "centos", "Name": "7" }
+  },
+  "Results": [
+    {
+      "Target": "centos:7 (centos 7)",
+      "Class": "os-pkgs",
+      "Type": "centos",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-4911",
+          "PkgName": "glibc",
+          "InstalledVersion": "2.17-326.el7_9",
+          "FixedVersion": "2.17-326.el7_9.3",
+          "Status": "fixed",
+          "Severity": "HIGH",
+          "Title": "glibc: buffer overflow in ld.so (Looney Tunables)",
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2023:5455",
+            "https://nvd.nist.gov/vuln/detail/CVE-2023-4911"
+          ]
+        },
+        {
+          "VulnerabilityID": "CVE-2024-0001",
+          "PkgName": "openssl-libs",
+          "InstalledVersion": "1.0.2k-26.el7_9",
+          "FixedVersion": "",
+          "Status": "end_of_life",
+          "Severity": "HIGH",
+          "Title": "example: fix will never ship for this distro version"
+        },
+        {
+          "VulnerabilityID": "CVE-2022-0002",
+          "PkgName": "bind-license",
+          "InstalledVersion": "9.11.4-26.P2.el7_9.13",
+          "FixedVersion": "",
+          "Status": "will_not_fix",
+          "Severity": "LOW",
+          "Title": "example: vendor declined to fix"
+        }
+      ]
+    }
+  ]
+}
