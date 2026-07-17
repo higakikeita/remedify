@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -310,21 +310,24 @@ def _empty_parsed(target="unknown", family="", os_name=""):
         "findings": defaultdict(lambda: {
             "vulns": [], "fixed_versions": set(), "installed": None,
             "max_severity": "UNKNOWN", "references": [],
+            "in_use": False, "exploitable": False, "kev": False,
         }),
         "unfixed": defaultdict(lambda: {
             "vulns": [], "installed": None, "max_severity": "UNKNOWN",
             "ecosystem": None,
+            "in_use": False, "exploitable": False, "kev": False,
         }),
         "app": defaultdict(lambda: {
             "vulns": [], "fixed_versions": set(), "installed": None,
             "max_severity": "UNKNOWN", "locations": set(),
+            "in_use": False, "exploitable": False, "kev": False,
         }),
     }
 
 
 def _add_finding(parsed, pkg, installed, fixed, severity, vuln_id,
                  status="", title="", references=None, ecosystem=None,
-                 location=None):
+                 location=None, in_use=False, exploitable=False, kev=False):
     """Route one vulnerability record into findings / app / unfixed."""
     if not pkg:
         return
@@ -332,9 +335,15 @@ def _add_finding(parsed, pkg, installed, fixed, severity, vuln_id,
         {"NEGLIGIBLE": "LOW"}.get(severity, "UNKNOWN")
     vuln = {"id": vuln_id, "severity": sev, "title": title, "status": status}
 
+    def _merge_flags(bucket):
+        bucket["in_use"] = bucket["in_use"] or in_use
+        bucket["exploitable"] = bucket["exploitable"] or exploitable
+        bucket["kev"] = bucket["kev"] or kev
+
     if not fixed or fixed.lower() in ("none", "n/a", "-"):
         u = parsed["unfixed"][pkg]
         u["installed"] = installed or u["installed"]
+        _merge_flags(u)
         u["ecosystem"] = ecosystem
         u["vulns"].append(vuln)
         if SEVERITY_ORDER.get(sev, 0) > SEVERITY_ORDER.get(u["max_severity"], 0):
@@ -344,6 +353,7 @@ def _add_finding(parsed, pkg, installed, fixed, severity, vuln_id,
     if ecosystem:
         a = parsed["app"][(ecosystem, pkg)]
         a["installed"] = installed or a["installed"]
+        _merge_flags(a)
         if location:
             a["locations"].add(location)
         for candidate in re.split(r"[,\s]+", fixed):
@@ -356,6 +366,7 @@ def _add_finding(parsed, pkg, installed, fixed, severity, vuln_id,
 
     f = parsed["findings"][pkg]
     f["installed"] = installed or f["installed"]
+    _merge_flags(f)
     for candidate in re.split(r"[,\s]+", fixed):
         if candidate:
             f["fixed_versions"].add(candidate)
@@ -466,65 +477,160 @@ def parse_sysdig_csv(text: str, os_override: str = None):
 # NOTE: field names validated against sysdig-cli-scanner output; treat as beta
 # until confirmed against your tenant's API version.
 
+SYSDIG_NUMERIC_SEVERITY = {
+    0: "CRITICAL", 1: "HIGH", 2: "MEDIUM", 3: "LOW", 4: "LOW",  # 4 = negligible
+    5: "UNKNOWN", 6: "UNKNOWN", 7: "UNKNOWN",
+}
+
+
+def _sysdig_severity(sev):
+    if isinstance(sev, dict):
+        sev = sev.get("value", "UNKNOWN")
+    if isinstance(sev, (int, float)):
+        return SYSDIG_NUMERIC_SEVERITY.get(int(sev), "UNKNOWN")
+    return (str(sev) or "UNKNOWN").upper()
+
+
 def parse_sysdig_json(data: dict, os_override: str = None):
     result = data.get("result", data)
     meta = result.get("metadata", {}) or {}
-    target = meta.get("pullString") or meta.get("imageId") or "sysdig-scan"
-    os_string = meta.get("baseOs", "")
+    target = (meta.get("pullString") or meta.get("imageId")
+              or result.get("mainAssetName") or "sysdig-scan")
+    os_string = meta.get("baseOs", "") or meta.get("os", "")
+
+    # packages: list (cli-scanner) or dict keyed by id (VM API v1)
+    packages = result.get("packages") or []
+    pkg_iter = packages.values() if isinstance(packages, dict) else packages
+
+    # VM API v1 keeps vulnerabilities in a separate table referenced by id
+    vuln_table = result.get("vulnerabilities") or {}
+    if isinstance(vuln_table, list):
+        vuln_table = {v.get("id") or v.get("name"): v for v in vuln_table}
 
     parsed = _empty_parsed(target)
-    for pkg in result.get("packages", []) or []:
+    for pkg in pkg_iter:
+        if not isinstance(pkg, dict):
+            continue
         pkg_type = (pkg.get("type") or "").lower()
         ecosystem = None
         if pkg_type not in SYSDIG_OS_PKG_TYPES:
             ecosystem = LANG_ECOSYSTEMS.get(pkg_type)
             if not ecosystem:
                 continue
-        for v in pkg.get("vulns", []) or []:
-            sev = v.get("severity")
-            if isinstance(sev, dict):
-                sev = sev.get("value", "UNKNOWN")
-            fixed = v.get("fixedInVersion") or pkg.get("suggestedFix") or ""
+
+        vulns = pkg.get("vulns")
+        if vulns is None:
+            refs = (pkg.get("vulnsRefs") or pkg.get("vulnerabilitiesRefs")
+                    or pkg.get("vulnRefs") or [])
+            vulns = [vuln_table[r] for r in refs if r in vuln_table]
+
+        for v in vulns or []:
+            if not isinstance(v, dict):
+                v = vuln_table.get(v, {})
+                if not v:
+                    continue
+            fixed = (v.get("fixedInVersion") or v.get("fixVersion")
+                     or pkg.get("suggestedFix") or "")
             _add_finding(parsed, pkg=pkg.get("name"),
                          installed=pkg.get("version"), fixed=fixed,
-                         severity=(sev or "UNKNOWN").upper(),
-                         vuln_id=v.get("name"), ecosystem=ecosystem,
-                         location=pkg.get("path"))
+                         severity=_sysdig_severity(v.get("severity")),
+                         vuln_id=v.get("name") or v.get("vulnName") or v.get("cve"),
+                         ecosystem=ecosystem,
+                         location=pkg.get("path"),
+                         in_use=bool(pkg.get("isRunning")),
+                         exploitable=bool(v.get("exploitable")),
+                         kev=bool(v.get("cisaKev")))
 
     if os_override or os_string:
         parsed["family"], parsed["os_name"] = parse_os_string(os_override or os_string)
     return parsed
 
 
-def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: str = None):
+def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: str = None,
+                 insecure: bool = False, ca_bundle: str = None):
     """Fetch a scan result from the Sysdig Vulnerability Management API.
 
     Without --result-id, lists runtime results and picks the first match.
     Beta: endpoint paths follow the public VM API (v1); report issues with
     your region/API version if they differ.
     """
+    import ssl
     import urllib.request
+
+    if insecure:
+        ctx = ssl._create_unverified_context()
+        print("warning: TLS certificate verification disabled (--insecure). "
+              "Use --ca-bundle with your corporate CA for regular use.",
+              file=sys.stderr)
+    elif ca_bundle:
+        ctx = ssl.create_default_context(cafile=ca_bundle)
+    else:
+        ctx = ssl.create_default_context()
+
+    # strip regular and full-width whitespace that sneaks in via copy-paste
+    token = (token or "").strip(" \t\r\n　 ")
+
+    import urllib.error
 
     def get(path):
         req = urllib.request.Request(
             api_url.rstrip("/") + path,
             headers={"Authorization": f"Bearer {token}",
                      "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                return json.loads(resp.read().decode())
+        except ssl.SSLCertVerificationError as e:
+            sys.exit(f"error: TLS verification failed ({e.reason}). If you are "
+                     "behind a corporate TLS-inspecting proxy, pass "
+                     "--ca-bundle /path/to/corp-ca.pem, or --insecure to test.")
+
+    # API path prefixes vary by tenant generation; probe in order.
+    prefixes = ["/secure/vulnerability/v1", "/secure/vulnerability/v1beta1"]
+    last_err = None
 
     if not result_id:
-        query = "/secure/vulnerability/v1/runtime-results?limit=1"
+        suffix = "/runtime-results?limit=1"
         if filter_expr:
             import urllib.parse
-            query += "&filter=" + urllib.parse.quote(filter_expr)
-        listing = get(query)
+            suffix = "/runtime-results?limit=1&filter=" + urllib.parse.quote(filter_expr)
+        listing = prefix = None
+        for p in prefixes:
+            try:
+                listing = get(p + suffix)
+                prefix = p
+                break
+            except urllib.error.HTTPError as e:
+                last_err = f"{p}{suffix} -> HTTP {e.code}"
+                if e.code == 401:
+                    sys.exit("error: 401 Unauthorized. Check SYSDIG_API_TOKEN "
+                             "(Settings > Sysdig Secure API token) and that "
+                             "--api-url matches your tenant region.")
+                if e.code != 404:
+                    raise
+        if listing is None:
+            sys.exit("error: no known runtime-results endpoint responded "
+                     f"(last: {last_err}). Your tenant may use a different "
+                     "API version — run with a Sysdig scan-result JSON file "
+                     "instead, and open an issue with your region.")
         rows = listing.get("data") or []
         if not rows:
             sys.exit("error: no runtime scan results matched. "
                      "Try --result-id or adjust --filter.")
         result_id = rows[0].get("resultId") or rows[0].get("id")
-    return get(f"/secure/vulnerability/v1/results/{result_id}")
+        print(f"info: using API prefix {prefix}; result {result_id} "
+              f"({rows[0].get('mainAssetName') or rows[0].get('resourceName') or ''})",
+              file=sys.stderr)
+        return get(f"{prefix}/results/{result_id}")
+
+    for p in prefixes:
+        try:
+            return get(f"{p}/results/{result_id}")
+        except urllib.error.HTTPError as e:
+            last_err = f"{p}/results/{result_id} -> HTTP {e.code}"
+            if e.code != 404:
+                raise
+    sys.exit(f"error: result not found on any known endpoint (last: {last_err}).")
 
 
 def detect_input_format(raw: str):
@@ -566,6 +672,7 @@ def build_plan(parsed, min_severity="UNKNOWN"):
             "backport": detect_backport(target_version),
             "advisories": classify_references(f["references"]),
             "hints": post_update_hints(pkg),
+            "in_use": f["in_use"], "exploitable": f["exploitable"], "kev": f["kev"],
         })
     items.sort(key=lambda i: -SEVERITY_ORDER.get(i["severity"], 0))
 
@@ -598,8 +705,12 @@ def build_plan(parsed, min_severity="UNKNOWN"):
             "backport": detect_backport(fix_version),
             "advisories": advisories[:3],
             "hints": hints,
+            "in_use": any(m["in_use"] for m in members),
+            "exploitable": any(m["exploitable"] for m in members),
+            "kev": any(m["kev"] for m in members),
         })
-    steps.sort(key=lambda s: -SEVERITY_ORDER.get(s["severity"], 0))
+    steps.sort(key=lambda s: (-SEVERITY_ORDER.get(s["severity"], 0),
+                              -(s["kev"] * 4 + s["exploitable"] * 2 + s["in_use"])))
 
     # Application dependencies (lang-pkgs): fix = upgrade + rebuild
     app_steps = []
@@ -616,8 +727,10 @@ def build_plan(parsed, min_severity="UNKNOWN"):
             "cves": sorted({v["id"] for v in a["vulns"] if v["id"]}),
             "locations": sorted(a["locations"]),
             "action": app_fix_action(ecosystem, pkg, fix_version),
+            "in_use": a["in_use"], "exploitable": a["exploitable"], "kev": a["kev"],
         })
-    app_steps.sort(key=lambda s: -SEVERITY_ORDER.get(s["severity"], 0))
+    app_steps.sort(key=lambda s: (-SEVERITY_ORDER.get(s["severity"], 0),
+                                  -(s["kev"] * 4 + s["exploitable"] * 2 + s["in_use"])))
 
     # Unfixed findings (never filtered by min-severity: silent omission erodes trust)
     unfixed = []
@@ -631,6 +744,7 @@ def build_plan(parsed, min_severity="UNKNOWN"):
             "cves": sorted({v["id"] for v in u["vulns"] if v["id"]}),
             "status": status,
             "status_label": UNFIXED_STATUS_LABELS.get(status, f"Status: {status}"),
+            "in_use": u["in_use"], "exploitable": u["exploitable"], "kev": u["kev"],
         })
     unfixed.sort(key=lambda i: -SEVERITY_ORDER.get(i["severity"], 0))
 
@@ -650,6 +764,17 @@ def build_plan(parsed, min_severity="UNKNOWN"):
 # ---------------------------------------------------------------------------
 # Renderers
 # ---------------------------------------------------------------------------
+
+def _priority_badges(x):
+    badges = []
+    if x.get("kev"):
+        badges.append("CISA KEV (known exploited)")
+    if x.get("exploitable"):
+        badges.append("public exploit available")
+    if x.get("in_use"):
+        badges.append("package in use at runtime")
+    return badges
+
 
 def _step_title(step):
     pkgs = step["packages"]
@@ -688,6 +813,9 @@ def render_markdown(plan):
                          f"(same source, one update)")
         lines.append(f"- Installed: `{step['installed']}` -> Fix: `{step['fix_version']}`")
         lines.append(f"- CVEs: {', '.join(step['cves'])}")
+        badges = _priority_badges(step)
+        if badges:
+            lines.append(f"- 🚨 **Priority**: {', '.join(badges)}")
         if step["backport"]:
             lines.append(f"- **Vendor backport ({step['backport']})**: the fixed version is a "
                          f"distro backport — it will not match the upstream version number. "
@@ -719,6 +847,9 @@ def render_markdown(plan):
             lines.append(f"- CVEs: {', '.join(step['cves'])}")
             if step["locations"]:
                 lines.append(f"- Found in: {', '.join(f'`{l}`' for l in step['locations'])}")
+            badges = _priority_badges(step)
+            if badges:
+                lines.append(f"- 🚨 **Priority**: {', '.join(badges)}")
             lines.append(f"- Fix: {step['action']}")
             lines.append("")
 
@@ -729,8 +860,12 @@ def render_markdown(plan):
                      "accept the risk with justification, or track the vendor advisory.")
         lines.append("")
         for u in plan["unfixed"]:
-            lines.append(f"- **{u['package']}** `{u['severity']}` "
-                         f"({', '.join(u['cves'])}) — {u['status_label']}")
+            line = (f"- **{u['package']}** `{u['severity']}` "
+                    f"({', '.join(u['cves'])}) — {u['status_label']}")
+            badges = _priority_badges(u)
+            if badges:
+                line += f" — 🚨 {', '.join(badges)}"
+            lines.append(line)
         lines.append("")
 
     return "\n".join(lines)
@@ -757,6 +892,9 @@ def render_shell(plan):
             continue
         lines.append(f"# {', '.join(step['packages'])} {step['installed']} -> "
                      f"{step['fix_version']} [{step['severity']}] {', '.join(step['cves'])}")
+        badges = _priority_badges(step)
+        if badges:
+            lines.append(f"#   PRIORITY: {', '.join(badges)}")
         if step["backport"]:
             lines.append(f"#   NOTE: {step['backport']} vendor backport — version differs from upstream")
         for hint in step["hints"]:
@@ -815,6 +953,12 @@ def main():
                     help="Specific scan result ID (default: latest runtime result)")
     ap.add_argument("--filter", dest="filter_expr", default=None,
                     help="Sysdig runtime-results filter expression")
+    ap.add_argument("--insecure", action="store_true",
+                    help="Skip TLS certificate verification (testing only)")
+    ap.add_argument("--ca-bundle", default=None,
+                    help="Path to CA bundle (e.g. corporate proxy CA)")
+    ap.add_argument("--dump", default=None, metavar="FILE",
+                    help="Save the raw API response JSON to FILE (debugging)")
     ap.add_argument("--version", action="version", version=f"remedify {__version__}")
     args = ap.parse_args()
 
@@ -824,7 +968,12 @@ def main():
         if not args.api_url or not token:
             sys.exit("error: --from-sysdig requires --api-url and the "
                      "SYSDIG_API_TOKEN environment variable.")
-        data = fetch_sysdig(args.api_url, token, args.result_id, args.filter_expr)
+        data = fetch_sysdig(args.api_url, token, args.result_id, args.filter_expr,
+                            insecure=args.insecure, ca_bundle=args.ca_bundle)
+        if args.dump:
+            with open(args.dump, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            print(f"info: raw API response saved to {args.dump}", file=sys.stderr)
         parsed = parse_sysdig_json(data, os_override=args.os_override)
     else:
         if not args.scan:

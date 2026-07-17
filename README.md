@@ -40,7 +40,8 @@ They are complementary: containers → copa, everything else → remedify.
 
 ## Features (v0.2)
 
-- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://app.us2.sysdig.com` with `SYSDIG_API_TOKEN`; beta)
+- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://us2.app.sysdig.com` with `SYSDIG_API_TOKEN`; validated against a live tenant)
+- **Priority signals**: findings carry Sysdig runtime context — 🚨 CISA KEV (known exploited), public exploit available, and **package in use at runtime** — and steps are sorted by severity + these signals, so you fix what attackers can actually reach first
 - **Application dependencies (lang-pkgs)**: Java/npm/pip/Go/Ruby/PHP/Rust/.NET findings get ecosystem-specific fix instructions (update pom.xml / `npm install pkg@ver` / etc. + rebuild) — the class of finding neither OS package managers nor copa can fix
 - **Distro-aware commands**: apt (Ubuntu/Debian), dnf/yum (RHEL/Rocky/Alma/Amazon/Fedora), apk (Alpine), zypper (SUSE)
 - **Consolidated steps**: binary packages from one source package (e.g. e2fsprogs + libcom-err2 + libext2fs2 + libss2) become **one** command, not four

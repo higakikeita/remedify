@@ -328,6 +328,41 @@ class TestLangPkgsTrivy(unittest.TestCase):
         self.assertEqual([s["package"] for s in plan["app_steps"]], ["lodash"])
 
 
+class TestSysdigApiV1(unittest.TestCase):
+    """v0.5: real VM API v1 response shape (fixture extracted from a live
+    tenant response for the public nicolaka/netshoot image).
+    packages = dict keyed by id, vulnerabilities = separate dict,
+    severity = lowercase string, fixVersion may be null."""
+
+    def setUp(self):
+        self.plan = remedify.build_plan(
+            remedify.parse_sysdig_json(load("sysdig-api-v1.json")))
+
+    def test_metadata(self):
+        self.assertEqual(self.plan["target"], "nicolaka/netshoot:latest")
+        self.assertEqual(self.plan["pkg_manager"], "apk")  # alpine 3.24.1
+
+    def test_vulnerabilities_refs_resolved(self):
+        step = next(s for s in self.plan["steps"] if "c-ares" in s["packages"])
+        self.assertTrue(step["command"].startswith("apk upgrade"))
+        self.assertTrue(step["cves"])
+
+    def test_in_use_flag_from_isrunning(self):
+        step = next(s for s in self.plan["steps"] if "c-ares" in s["packages"])
+        self.assertTrue(step["in_use"])
+
+    def test_null_fixversion_goes_to_unfixed(self):
+        self.assertIn("perl", [u["package"] for u in self.plan["unfixed"]])
+
+    def test_go_binary_becomes_app_step(self):
+        pkgs = [s["package"] for s in self.plan["app_steps"]]
+        self.assertIn("github.com/gogo/protobuf", pkgs)
+
+    def test_priority_badges_render(self):
+        md = remedify.render_markdown(self.plan)
+        self.assertIn("package in use at runtime", md)
+
+
 class TestRenderers(unittest.TestCase):
     def setUp(self):
         self.plan = remedify.build_plan(

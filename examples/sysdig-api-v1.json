@@ -1,0 +1,729 @@
+{
+  "assetType": "containerImage",
+  "stage": "runtime",
+  "metadata": {
+    "architecture": "amd64",
+    "baseOs": "alpine 3.24.1",
+    "createdAt": "2026-07-01T17:04:52.151720149Z",
+    "digest": "sha256:b09d9b21381f47a79b3cbcb30da25266dc17186ea00ae65e99fdc51396f48e70",
+    "imageId": "sha256:2298d942ce5f8e8083c036b6d62e129379998712ef78343f88d41d782d507141",
+    "os": "linux",
+    "pullString": "nicolaka/netshoot:latest",
+    "size": 641232896
+  },
+  "packages": {
+    "359f56c1-1569-45aa-845a-b84e390b0963": {
+      "category": "package",
+      "endOfLifeDate": null,
+      "isRemoved": false,
+      "isRunning": false,
+      "layerRef": "02c5a33492d7d6ec",
+      "name": "github.com/gogo/protobuf",
+      "path": "/usr/local/bin/calicoctl",
+      "riskAcceptRefs": [],
+      "type": "golang",
+      "version": "v1.3.2",
+      "vulnerabilitiesRefs": null
+    },
+    "96ffafdd-03de-4426-8b82-1d15073f0f80": {
+      "category": "package",
+      "endOfLifeDate": null,
+      "isRemoved": false,
+      "isRunning": false,
+      "layerRef": "00e1056e94a9d376",
+      "name": "openssh",
+      "path": "/lib/apk/db/installed",
+      "riskAcceptRefs": [],
+      "suggestedFix": "10.4",
+      "type": "os",
+      "version": "10.3_p1-r0",
+      "vulnerabilitiesRefs": [
+        "ad9d501d-2713-46dc-ac6d-f0ef54f98071",
+        "8a8a30b4-ddd7-415e-98c6-1e33799b1eda",
+        "3d0f432e-a8c1-4524-a5b4-fde7f1741306",
+        "2c0abb3e-d91b-4446-aba4-257cba022e69",
+        "b3f40d74-e54e-4886-aba8-83d2130b75de",
+        "e15cbd58-f865-41e9-9542-0727eadc0ce5",
+        "c8cf3349-59a3-4412-a715-efb2aee3ea9a",
+        "2f20c373-8d78-4492-8a0e-3ad02364298f"
+      ]
+    },
+    "988ee284-1115-4ab0-9a72-a2138bb551fb": {
+      "category": "package",
+      "endOfLifeDate": null,
+      "isRemoved": false,
+      "isRunning": false,
+      "layerRef": "aebf71206672bdd5",
+      "name": "github.com/gogo/protobuf",
+      "path": "/usr/local/bin/ctop",
+      "riskAcceptRefs": [],
+      "suggestedFix": "v1.3.2",
+      "type": "golang",
+      "version": "v1.3.1",
+      "vulnerabilitiesRefs": [
+        "6dda6485-7089-4306-b2d9-d1e5efcc5683"
+      ]
+    },
+    "c021c736-9bdf-4492-a1ce-4819a8e9aeba": {
+      "category": "package",
+      "endOfLifeDate": null,
+      "isRemoved": false,
+      "isRunning": false,
+      "layerRef": "00e1056e94a9d376",
+      "name": "perl",
+      "path": "/lib/apk/db/installed",
+      "riskAcceptRefs": [],
+      "type": "os",
+      "version": "5.42.2-r0",
+      "vulnerabilitiesRefs": [
+        "1d798ee0-608e-4d12-bbad-835d4e463264",
+        "44f9f7fe-b1ca-4fd6-8ab4-9c10122e1cb2",
+        "5d262206-0d1b-4dea-9b92-b1f7fc037ba3"
+      ]
+    },
+    "c137ff88-a640-42bd-95bc-4abddea30f9e": {
+      "category": "package",
+      "endOfLifeDate": null,
+      "isRemoved": false,
+      "isRunning": true,
+      "layerRef": "00e1056e94a9d376",
+      "name": "c-ares",
+      "path": "/lib/apk/db/installed",
+      "riskAcceptRefs": [],
+      "suggestedFix": "1.34.8-r0",
+      "type": "os",
+      "version": "1.34.6-r0",
+      "vulnerabilitiesRefs": [
+        "378bab8c-1386-40c6-b69d-8680e710abf8"
+      ]
+    }
+  },
+  "vulnerabilities": {
+    "1d798ee0-608e-4d12-bbad-835d4e463264": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 8.4,
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-13",
+      "exploitable": false,
+      "firstSeen": "2026-07-15",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-57432",
+      "packageRef": "c021c736-9bdf-4492-a1ce-4819a8e9aeba",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00196,
+            "percentile": 0.09546,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            "score": 8.4
+          },
+          "publishDate": "2026-07-13T17:17:55.67Z",
+          "severity": "high"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-13T17:17:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "high"
+    },
+    "2c0abb3e-d91b-4446-aba4-257cba022e69": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-59998",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00179,
+            "percentile": 0.07636,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+            "score": 6.5
+          },
+          "publishDate": "2026-07-08T01:16:28.87Z",
+          "severity": "medium"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N",
+            "score": 4.8
+          },
+          "publishDate": "2026-07-08T00:11:05.183Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-06-24T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "medium",
+      "solutionDate": "2026-07-06"
+    },
+    "2f20c373-8d78-4492-8a0e-3ad02364298f": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 9.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-60002",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00263,
+            "percentile": 0.17848,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L",
+            "score": 9.4
+          },
+          "publishDate": "2026-07-08T01:16:29.43Z",
+          "severity": "critical"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+            "score": 7.7
+          },
+          "publishDate": "2026-07-08T00:17:33.058Z",
+          "severity": "high"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-07-06T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "critical",
+      "solutionDate": "2026-07-06"
+    },
+    "378bab8c-1386-40c6-b69d-8680e710abf8": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 7.5,
+        "vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "version": "3.0"
+      },
+      "disclosureDate": "2026-07-06",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "1.34.8-r0",
+      "mainProvider": "vulndb",
+      "name": "CVE-2026-33630",
+      "packageRef": "c137ff88-a640-42bd-95bc-4abddea30f9e",
+      "providersMetadata": {
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+            "score": 7.5
+          },
+          "publishDate": "2026-07-07T00:00:00Z",
+          "severity": "high"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-09T00:00:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-07-06T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "high",
+      "solutionDate": "2026-07-08"
+    },
+    "3d0f432e-a8c1-4524-a5b4-fde7f1741306": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-59997",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00177,
+            "percentile": 0.07392,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+            "score": 5.4
+          },
+          "publishDate": "2026-07-08T01:16:28.727Z",
+          "severity": "medium"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+            "score": 5.4
+          },
+          "publishDate": "2026-07-08T00:09:04.92Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-06-05T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "medium",
+      "solutionDate": "2026-07-06"
+    },
+    "44f9f7fe-b1ca-4fd6-8ab4-9c10122e1cb2": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-05-26",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-8376",
+      "packageRef": "c021c736-9bdf-4492-a1ce-4819a8e9aeba",
+      "providersMetadata": {
+        "amazon": {
+          "publishDate": "2026-06-08T09:00:00Z"
+        },
+        "euleros": {
+          "publishDate": "2026-07-13T11:29:37Z"
+        },
+        "first.org": {
+          "epssScore": {
+            "score": 0.00398,
+            "percentile": 0.32091,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            "score": 9.8
+          },
+          "publishDate": "2026-05-26T00:16:57.15Z",
+          "severity": "critical"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:L/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:H",
+            "score": 5.7
+          },
+          "publishDate": "2026-05-25T23:53:27.812Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-05-26T00:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-05-20T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "critical"
+    },
+    "5d262206-0d1b-4dea-9b92-b1f7fc037ba3": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-13",
+      "exploitable": false,
+      "firstSeen": "2026-07-15",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-13221",
+      "packageRef": "c021c736-9bdf-4492-a1ce-4819a8e9aeba",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00606,
+            "percentile": 0.44996,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H",
+            "score": 9.1
+          },
+          "publishDate": "2026-07-13T17:16:48.923Z",
+          "severity": "critical"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-13T17:16:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "critical"
+    },
+    "6dda6485-7089-4306-b2d9-d1e5efcc5683": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 8.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H",
+        "version": "3.1"
+      },
+      "disclosureDate": "2022-03-28",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "v1.3.2",
+      "mainProvider": "nvd",
+      "name": "CVE-2021-3121",
+      "packageRef": "988ee284-1115-4ab0-9a72-a2138bb551fb",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.03478,
+            "percentile": 0.87774,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "github": {
+          "publishDate": "2022-03-28T20:28:00Z"
+        },
+        "gitlab": {
+          "publishDate": "2021-01-11T00:00:00Z"
+        },
+        "govulndb": {
+          "publishDate": "2021-04-14T20:04:52Z"
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H",
+            "score": 8.6
+          },
+          "publishDate": "2021-01-11T06:15:13.46Z",
+          "severity": "high"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H",
+            "score": 8.6
+          },
+          "publishDate": "2021-01-11T00:00:00Z",
+          "severity": "high"
+        },
+        "ubuntu": {
+          "publishDate": "2021-01-11T06:15:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2021-01-10T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "high",
+      "solutionDate": "2021-03-17"
+    },
+    "8a8a30b4-ddd7-415e-98c6-1e33799b1eda": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-59996",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00241,
+            "percentile": 0.15122,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+            "score": 5.4
+          },
+          "publishDate": "2026-07-08T01:16:28.557Z",
+          "severity": "medium"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:L",
+            "score": 4.6
+          },
+          "publishDate": "2026-07-08T00:07:07.759Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-06-29T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "medium",
+      "solutionDate": "2026-07-06"
+    },
+    "ad9d501d-2713-46dc-ac6d-f0ef54f98071": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-59995",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00241,
+            "percentile": 0.15122,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+            "score": 5.4
+          },
+          "publishDate": "2026-07-08T01:16:28.39Z",
+          "severity": "medium"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:L",
+            "score": 5.4
+          },
+          "publishDate": "2026-07-08T00:04:49.995Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-06-29T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "medium",
+      "solutionDate": "2026-07-06"
+    },
+    "b3f40d74-e54e-4886-aba8-83d2130b75de": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-59999",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.0014,
+            "percentile": 0.03758,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+            "score": 7.5
+          },
+          "publishDate": "2026-07-08T01:16:29.01Z",
+          "severity": "high"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+            "score": 5.9
+          },
+          "publishDate": "2026-07-08T00:13:08.397Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-05-31T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "high",
+      "solutionDate": "2026-07-06"
+    },
+    "c8cf3349-59a3-4412-a715-efb2aee3ea9a": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 6.5,
+        "vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
+        "version": "3.0"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "vulndb",
+      "name": "CVE-2026-60001",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00265,
+            "percentile": 0.18017,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "publishDate": "2026-07-08T01:16:29.29Z"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
+            "score": 6.5
+          },
+          "publishDate": "2026-07-08T00:16:15.497Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-07-06T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "medium",
+      "solutionDate": "2026-07-06"
+    },
+    "e15cbd58-f865-41e9-9542-0727eadc0ce5": {
+      "cisaKev": {},
+      "cvssScore": {
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "version": "3.1"
+      },
+      "disclosureDate": "2026-07-08",
+      "exploitable": false,
+      "firstSeen": "2026-07-11",
+      "fixVersion": "10.4",
+      "mainProvider": "nvd",
+      "name": "CVE-2026-60000",
+      "packageRef": "96ffafdd-03de-4426-8b82-1d15073f0f80",
+      "providersMetadata": {
+        "first.org": {
+          "epssScore": {
+            "score": 0.00407,
+            "percentile": 0.32927,
+            "timestamp": "2026-07-16T00:00:00Z"
+          }
+        },
+        "nvd": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+            "score": 7.5
+          },
+          "publishDate": "2026-07-08T01:16:29.153Z",
+          "severity": "high"
+        },
+        "rhel": {
+          "cvssScore": {
+            "version": "3.1",
+            "vector": "AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+            "score": 5.9
+          },
+          "publishDate": "2026-07-08T00:14:31.23Z",
+          "severity": "medium"
+        },
+        "ubuntu": {
+          "publishDate": "2026-07-08T01:16:00Z"
+        },
+        "vulndb": {
+          "publishDate": "2026-07-06T00:00:00Z"
+        }
+      },
+      "riskAcceptRefs": null,
+      "severity": "high",
+      "solutionDate": "2026-07-06"
+    }
+  }
+}

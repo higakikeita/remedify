@@ -28,10 +28,21 @@ that needs changing.
 - ✅ `--from-sysdig` API fetch mode (beta — endpoint paths follow the public
   VM API v1; **needs validation against a real tenant**)
 
-## v0.5 candidates
+## Done in v0.5
 
-- **Validate `--from-sysdig` against a real tenant** (top priority; the
-  parser seam is `parse_sysdig_json` — adjust there if the schema differs)
+- ✅ **`--from-sysdig` validated against a live tenant** (us2). Fixes found:
+  correct host is `us2.app.sysdig.com`; API prefix probing (v1 → v1beta1);
+  VM API v1 shape = packages dict + vulnerabilities table + refs;
+  severity as lowercase string; `fixVersion` nullable
+- ✅ Priority signals from Sysdig runtime context: `isRunning` (In-Use),
+  `exploitable`, `cisaKev` → 🚨 badges + priority-aware sorting
+- ✅ Real-response regression fixture (`examples/sysdig-api-v1.json`)
+- ✅ Ops hardening: `--insecure` / `--ca-bundle` (corporate TLS interception),
+  `--dump` (raw response debugging), full-width-space-tolerant token handling
+
+## v0.6 candidates
+
+- Use `endOfLifeDate` from the API for per-package EOL warnings
 - Validate Sysdig CSV parser against real customer exports
 - EOL data from [endoflife.date](https://endoflife.date) API instead of static table
 - Grype JSON parser
