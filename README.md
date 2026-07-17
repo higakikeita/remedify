@@ -4,6 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](remedify.py)
+[![PyPI](https://img.shields.io/pypi/v/remedify.svg)](https://pypi.org/project/remedify/)
 
 > **copa patches container images. remedify tells you how to patch everything else.**
 
@@ -32,8 +33,8 @@ $ remedify scan.json
 ## Quick start
 
 ```bash
-git clone https://github.com/higakikeita/remedify && cd remedify
-# optional: pip install .   → installs the `remedify` command
+pip install remedify          # from PyPI
+# or zero-install: git clone https://github.com/higakikeita/remedify && cd remedify
 
 # 1. From Trivy
 trivy image --format json -o scan.json nginx:latest
