@@ -649,6 +649,88 @@ class TestAnsibleRenderer(unittest.TestCase):
         self.assertGreater(len(doc[0]["tasks"]), 3)
 
 
+class TestOsvScanner(unittest.TestCase):
+    """v1.0: OSV-Scanner JSON (`osv-scanner --format json`)."""
+
+    def setUp(self):
+        self.plan = remedify.build_plan(remedify.parse_osv(load("osv-scanner.json")))
+
+    def test_os_detected_from_ecosystem(self):
+        self.assertEqual(self.plan["pkg_manager"], "apt")  # Ubuntu:22.04
+        self.assertEqual(self.plan["target"], "myapp:1.0")
+
+    def test_os_package_command(self):
+        step = next(s for s in self.plan["steps"] if "libssl3" in s["packages"])
+        self.assertEqual(step["command"],
+                         "apt-get install --only-upgrade libssl3=3.0.2-0ubuntu1.18")
+
+    def test_cvss_score_severity_fallback(self):
+        # libc6 has no database_specific.severity, only a CVSS vector w/ 9.8
+        step = next(s for s in self.plan["steps"] if "libc6" in s["packages"])
+        self.assertEqual(step["severity"], "CRITICAL")
+
+    def test_go_package_becomes_app_step(self):
+        step = next(s for s in self.plan["app_steps"]
+                    if "runc" in s["package"])
+        self.assertEqual(step["ecosystem"], "go")
+        self.assertEqual(step["fix_version"], "1.1.12")
+
+    def test_no_fix_goes_to_unfixed(self):
+        self.assertIn("bash", [u["package"] for u in self.plan["unfixed"]])
+
+    def test_autodetect(self):
+        with open(os.path.join(EXAMPLES, "osv-scanner.json"), encoding="utf-8") as f:
+            self.assertEqual(remedify.detect_input_format(f.read()), "osv")
+
+    def test_advisory_surfaced(self):
+        md = remedify.render_markdown(self.plan)
+        self.assertIn("USN-6986-1", md)
+
+
+class TestContext(unittest.TestCase):
+    """v1.0: --context host|image (immutable-infra advice)."""
+
+    def test_looks_like_image(self):
+        self.assertTrue(remedify.looks_like_image("myapp:1.0"))
+        self.assertTrue(remedify.looks_like_image("registry.k8s.io/x:v1@sha256:ab"))
+        self.assertTrue(remedify.looks_like_image("ns/repo:tag"))
+        self.assertFalse(remedify.looks_like_image("prod-web-host (Ubuntu 22.04)"))
+        self.assertFalse(remedify.looks_like_image("web-01"))
+
+    def test_auto_detects_image_and_shows_rebuild_banner(self):
+        # grype fixture target is "myapp:1.0" (first-party image)
+        plan = remedify.build_plan(remedify.parse_grype(load("grype-ubuntu.json")))
+        self.assertEqual(plan["context"], "image")
+        md = remedify.render_markdown(plan)
+        self.assertIn("Container image", md)
+        self.assertIn("rebuild", md.lower())
+
+    def test_auto_detects_host_no_banner(self):
+        # trivy-ubuntu target is "prod-web-host (Ubuntu 22.04)"
+        plan = remedify.build_plan(remedify.parse_trivy(load("trivy-ubuntu.json")))
+        self.assertEqual(plan["context"], "host")
+        self.assertNotIn("Container image", remedify.render_markdown(plan))
+
+    def test_explicit_host_override(self):
+        plan = remedify.build_plan(remedify.parse_grype(load("grype-ubuntu.json")),
+                                   context="host")
+        self.assertEqual(plan["context"], "host")
+        self.assertNotIn("Container image", remedify.render_markdown(plan))
+
+    def test_explicit_image_override(self):
+        plan = remedify.build_plan(remedify.parse_trivy(load("trivy-ubuntu.json")),
+                                   context="image")
+        self.assertIn("Container image", remedify.render_markdown(plan))
+
+    def test_third_party_takes_precedence(self):
+        data = load("grype-ubuntu.json")
+        data["source"]["target"]["userInput"] = "registry.k8s.io/kube-proxy:v1"
+        plan = remedify.build_plan(remedify.parse_grype(data))
+        md = remedify.render_markdown(plan)
+        self.assertIn("Third-party image", md)
+        self.assertNotIn("🏗️", md)  # not the first-party rebuild banner
+
+
 class TestReviewFixes(unittest.TestCase):
     """v0.9: fixes from external code review."""
 

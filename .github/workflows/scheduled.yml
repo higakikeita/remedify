@@ -1,0 +1,60 @@
+name: Scheduled maintenance
+
+# A single-file, zero-dependency tool still rots: Python releases, distro EOL
+# dates, and scanner JSON schemas all drift. This weekly run catches that drift
+# without anyone remembering to look — the maintenance-offload half of "how do
+# we keep this alive."
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  deep-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Full test suite
+        run: python -m unittest discover tests -v
+      - name: Deep dpkg property test (vs. real dpkg)
+        run: DPKG_PROP_N=20000 python -m unittest tests.test_dpkg_property -v
+      - name: Deep fuzz pass
+        run: FUZZ_N=20000 python -m unittest tests.test_fuzz -v
+
+  live-eol-drift:
+    # Verifies the endoflife.date integration still parses the live API shape,
+    # and surfaces distros that have newly reached EOL since we last looked.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check live EOL for common distros
+        run: |
+          for os in ubuntu:18.04 ubuntu:22.04 debian:11 debian:12 \
+                    amazon:2 centos:7 alpine:3.19; do
+            fam=${os%%:*}; ver=${os##*:}
+            printf '{"ArtifactName":"x","Metadata":{"OS":{"Family":"%s","Name":"%s"}},"Results":[]}' \
+              "$fam" "$ver" | python remedify.py - --check-eol || true
+          done
+
+  scanner-schema-smoke:
+    # Pulls a current Trivy golden file and confirms our parser still accepts
+    # the live schema (fails loudly if Trivy changed its JSON shape).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch a current Trivy golden file and parse it
+        run: |
+          url=https://raw.githubusercontent.com/aquasecurity/trivy/main/integration/testdata/ubuntu-1804.json.golden
+          curl -fsSL "$url" -o /tmp/live-trivy.json
+          python remedify.py /tmp/live-trivy.json > /dev/null
+          echo "Trivy schema still parses OK"

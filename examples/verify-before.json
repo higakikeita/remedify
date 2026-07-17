@@ -1,0 +1,15 @@
+{
+  "ArtifactName": "myapp:1.0",
+  "Metadata": { "OS": { "Family": "ubuntu", "Name": "22.04" } },
+  "Results": [{ "Target": "myapp", "Class": "os-pkgs", "Vulnerabilities": [
+    { "VulnerabilityID": "CVE-RESOLVED-1", "PkgName": "curl", "InstalledVersion": "7.81.0-1ubuntu1.15", "FixedVersion": "7.81.0-1ubuntu1.16", "Severity": "MEDIUM" },
+    { "VulnerabilityID": "CVE-RESOLVED-2", "PkgName": "libc6", "InstalledVersion": "2.35-0ubuntu3.6", "FixedVersion": "2.35-0ubuntu3.8", "Severity": "CRITICAL" },
+    { "VulnerabilityID": "CVE-REMOVED-1", "PkgName": "telnet", "InstalledVersion": "0.17-44build1", "FixedVersion": "0.17-44build2", "Severity": "LOW" },
+    { "VulnerabilityID": "CVE-SHORT-1", "PkgName": "libssl3", "InstalledVersion": "3.0.2-0ubuntu1.15", "FixedVersion": "3.0.2-0ubuntu1.18", "Severity": "HIGH", "References": ["https://ubuntu.com/security/notices/USN-6986-1"] },
+    { "VulnerabilityID": "CVE-UNTOUCHED-1", "PkgName": "linux-image-generic", "InstalledVersion": "5.15.0.105.102", "FixedVersion": "5.15.0.107.104", "Severity": "HIGH" },
+    { "VulnerabilityID": "CVE-REGRESS-1", "PkgName": "openssl", "InstalledVersion": "3.0.2-0ubuntu1.10", "FixedVersion": "3.0.2-0ubuntu1.18", "Severity": "HIGH" },
+    { "VulnerabilityID": "CVE-NOFIX-1", "PkgName": "vim", "InstalledVersion": "2:8.2.3995-1ubuntu2.15", "FixedVersion": "", "Severity": "LOW" },
+    { "VulnerabilityID": "CVE-NOWFIX-1", "PkgName": "tar", "InstalledVersion": "1.34+dfsg-1build3", "FixedVersion": "", "Severity": "MEDIUM" },
+    { "VulnerabilityID": "CVE-ANOM-1", "PkgName": "zlib1g", "InstalledVersion": "1:1.2.11.dfsg-2ubuntu9", "FixedVersion": "1:1.2.11.dfsg-2ubuntu9.2", "Severity": "MEDIUM" }
+  ]}]
+}

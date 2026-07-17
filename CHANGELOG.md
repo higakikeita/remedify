@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.11.1
+
+- **endoflife.date integration** (`--check-eol`, opt-in): live EOL data
+  instead of the static table. Network is off by default (zero-dep/offline
+  promise holds); cached ~24h; any failure falls back to the static table
+  and never raises.
+- **SECURITY.md**: private vulnerability reporting + documented threat model.
+- **Weekly scheduled CI**: deep dpkg-property (20k) and fuzz (20k) passes,
+  live-EOL drift check, and a Trivy-schema smoke test against the current
+  upstream golden file — catches drift without anyone remembering to look.
+
+## 0.11.0 — closed loop (verify)
+
+- **`remedify --baseline before.json after.json`**: diff two scans and prove
+  whether the fixes landed. Built entirely on the existing dpkg-correct
+  `compare_versions` — no new version logic.
+  - Classifies each (package, CVE): resolved / new / remaining, where
+    "remaining" is sub-typed via version comparison: untouched ·
+    upgraded-but-short · regressed · no-fix · now-fixable
+  - **Anomaly detection**: installed >= fix version yet still flagged →
+    surfaces scanner-cache / version-string / backport mismatches other
+    tools miss (leverages remedify's backport awareness)
+  - `--fail-on <sev>`: exit 2 if any fixable finding at/above severity
+    remains or a new one appears (no-fix remainings never trip the gate)
+  - `--format json` with a stable `reason` enum for MCP agents
+  - Cross-format (e.g. Grype baseline × Trivy after) supported
+
+## 0.10.0
+
+- **`--context host|image`** (auto-detected): for container images, lead with
+  "update the Dockerfile and rebuild" (immutable infra) rather than patching a
+  running container in place. Third-party images keep their vendor-tag advice.
+- **OSV-Scanner input** (`osv-scanner --format json`, auto-detected): OS
+  ecosystems (Debian/Ubuntu/Alpine/RHEL/…) → commands; language ecosystems
+  (npm/PyPI/Go/Maven/…) → rebuild steps. CVSS-vector severity fallback.
+- remedify now ingests Trivy, Grype, OSV-Scanner, and Sysdig (API/JSON/CSV).
+
 ## 0.9.2 — security (trust boundary hardening)
 
 Second-pass security review found two more attacker-reachable paths (distinct

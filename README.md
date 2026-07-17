@@ -47,8 +47,9 @@ export SYSDIG_API_TOKEN=<token>
 python3 remedify.py --from-sysdig --api-url https://us2.app.sysdig.com
 python3 remedify.py --from-sysdig --api-url ... --limit 20   # 20 workloads, one report
 
-# 2b. From Grype
+# 2b. From Grype or OSV-Scanner
 grype myapp:1.0 -o json | python3 remedify.py -
+osv-scanner --format json -r . | python3 remedify.py -
 
 # 3. From a Sysdig vulnerability report CSV export
 python3 remedify.py report.csv --os ubuntu:22.04
@@ -73,7 +74,7 @@ They are complementary: containers with a registry workflow → copa; **hosts, l
 
 ## Features
 
-- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Grype JSON**, **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://us2.app.sysdig.com` with `SYSDIG_API_TOKEN`; validated against a live tenant)
+- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Grype JSON**, **OSV-Scanner JSON**, **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://us2.app.sysdig.com` with `SYSDIG_API_TOKEN`; validated against a live tenant)
 - **Priority signals**: findings carry Sysdig runtime context — 🚨 CISA KEV (known exploited), public exploit available, and **package in use at runtime** — and steps are sorted by severity + these signals, so you fix what attackers can actually reach first
 - **Application dependencies (lang-pkgs)**: Java/npm/pip/Go/Ruby/PHP/Rust/.NET findings get ecosystem-specific fix instructions (update pom.xml / `npm install pkg@ver` / etc. + rebuild) — the class of finding neither OS package managers nor copa can fix
 - **Distro-aware commands**: apt (Ubuntu/Debian), dnf/yum (RHEL/Rocky/Alma/Amazon/Fedora), apk (Alpine), zypper (SUSE)
@@ -160,7 +161,10 @@ output, every time.
 |---|---|---|---|
 | `--format` | `markdown` `shell` `json` | `markdown` | Output format |
 | `--min-severity` | `LOW` `MEDIUM` `HIGH` `CRITICAL` | show all | Filter remediation steps (unfixed findings are **never** hidden) |
-| `--input` | `auto` `trivy` `grype` `sysdig-csv` `sysdig-json` | `auto` | Input format |
+| `--input` | `auto` `trivy` `grype` `osv` `sysdig-csv` `sysdig-json` | `auto` | Input format |
+| `--context` | `auto` `host` `image` | `auto` | Patch in place (host) vs. rebuild advice (image) |
+| `--baseline BEFORE` | file | | Verify mode: diff BEFORE vs. the after-scan and prove fixes landed |
+| `--check-eol` | | off | Use live endoflife.date data (network, cached ~24h) instead of the built-in table |
 | `--os` | e.g. `ubuntu:22.04` | from input | OS override for inputs lacking OS metadata |
 | `--from-sysdig` | | | Fetch runtime results from Sysdig VM API |
 | `--limit` | N | 1 | With `--from-sysdig`: N most recent workloads in one report |

@@ -1,0 +1,57 @@
+{
+  "results": [
+    {
+      "source": { "path": "myapp:1.0", "type": "docker" },
+      "packages": [
+        {
+          "package": { "name": "libssl3", "version": "3.0.2-0ubuntu1.15",
+                       "ecosystem": "Ubuntu:22.04" },
+          "vulnerabilities": [
+            {
+              "id": "CVE-2024-6119",
+              "database_specific": { "severity": "HIGH" },
+              "affected": [{ "ranges": [{ "type": "ECOSYSTEM",
+                "events": [{ "introduced": "0" },
+                           { "fixed": "3.0.2-0ubuntu1.18" }] }] }],
+              "references": [{ "type": "ADVISORY",
+                "url": "https://ubuntu.com/security/notices/USN-6986-1" }]
+            }
+          ]
+        },
+        {
+          "package": { "name": "libc6", "version": "2.35-0ubuntu3.6",
+                       "ecosystem": "Ubuntu:22.04" },
+          "vulnerabilities": [
+            {
+              "id": "CVE-2024-33599",
+              "severity": [{ "type": "CVSS_V3",
+                "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/9.8" }],
+              "affected": [{ "ranges": [{ "events": [
+                { "introduced": "0" }, { "fixed": "2.35-0ubuntu3.8" }] }] }]
+            }
+          ]
+        },
+        {
+          "package": { "name": "github.com/opencontainers/runc",
+                       "version": "1.0.3", "ecosystem": "Go" },
+          "vulnerabilities": [
+            {
+              "id": "CVE-2024-21626",
+              "database_specific": { "severity": "HIGH" },
+              "affected": [{ "ranges": [{ "events": [
+                { "introduced": "0" }, { "fixed": "1.1.12" }] }] }]
+            }
+          ]
+        },
+        {
+          "package": { "name": "bash", "version": "5.1-6ubuntu1",
+                       "ecosystem": "Ubuntu:22.04" },
+          "vulnerabilities": [
+            { "id": "CVE-2019-18276", "database_specific": { "severity": "LOW" },
+              "affected": [{ "ranges": [{ "events": [{ "introduced": "0" }] }] }] }
+          ]
+        }
+      ]
+    }
+  ]
+}

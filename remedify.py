@@ -24,11 +24,12 @@ import argparse
 import csv
 import io
 import json
+import os
 import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.9.2"
+__version__ = "0.11.1"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -166,6 +167,21 @@ DOCKER_OFFICIAL_IMAGES = {
     "mariadb", "node", "python", "golang", "php", "ruby", "openjdk", "httpd",
     "traefik", "memcached", "mongo", "rabbitmq", "haproxy", "registry", "caddy",
 }
+
+
+def looks_like_image(target: str):
+    """Heuristic: does the scan target look like a container image reference
+    (registry/repo:tag or @sha256:) rather than a host?"""
+    t = _s(target).strip()
+    if not t or " " in t:  # "prod-web-host (Ubuntu 22.04)" has a space
+        return False
+    if "@sha256:" in t or "/" in t:
+        return True
+    # bare "name:tag" with a plausible tag
+    if ":" in t:
+        _, _, tag = t.partition(":")
+        return bool(tag) and "/" not in tag
+    return False
 
 
 def detect_third_party(target: str):
@@ -316,6 +332,98 @@ def detect_eol(family: str, os_name: str):
     if entry and str(os_name).strip() in entry["versions"]:
         return entry["note"].format(v=os_name)
     return None
+
+
+# endoflife.date integration (opt-in). The static table above goes stale the
+# moment a distro reaches EOL; this checks live data instead. Network is
+# OPTIONAL — off by default so the zero-dependency / offline promise holds.
+# Any failure falls back to the static table and never raises.
+
+ENDOFLIFE_PRODUCTS = {
+    "ubuntu": "ubuntu", "debian": "debian", "alpine": "alpine",
+    "centos": "centos", "redhat": "rhel", "rhel": "rhel",
+    "amazon": "amazon-linux", "rocky": "rocky-linux", "almalinux": "almalinux",
+    "fedora": "fedora", "opensuse": "opensuse", "suse": "sles",
+}
+
+
+def _http_get_json(url, timeout=10):
+    """Small GET helper; factored out so tests can monkeypatch it."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _eol_cache_path(product):
+    import tempfile
+    d = os.path.join(os.environ.get("REMEDIFY_CACHE_DIR",
+                                    os.path.join(tempfile.gettempdir(), "remedify-cache")))
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        return None
+    return os.path.join(d, f"eol-{product}.json")
+
+
+def _load_eol_cycles(product, ttl_hours=24):
+    """Return endoflife.date cycles for a product, cached to disk with a TTL.
+    Returns [] on any error."""
+    import time
+    path = _eol_cache_path(product)
+    if path and os.path.exists(path):
+        try:
+            if time.time() - os.path.getmtime(path) < ttl_hours * 3600:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)
+        except (OSError, ValueError):
+            pass
+    try:
+        data = _http_get_json(f"https://endoflife.date/api/{product}.json")
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    if path:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except OSError:
+            pass
+    return data
+
+
+def detect_eol_live(family, os_name, today=None):
+    """EOL note from endoflife.date if the cycle is past EOL, else fall back to
+    the static table. Never raises."""
+    import datetime
+    product = ENDOFLIFE_PRODUCTS.get(_s(family).lower())
+    version = _s(os_name).strip().split()[0] if _s(os_name).strip() else ""
+    if not product or not version:
+        return detect_eol(family, os_name)
+    today = today or datetime.date.today()
+    for cycle in _load_eol_cycles(product):
+        if not isinstance(cycle, dict):
+            continue
+        cyc = _s(cycle.get("cycle"))
+        if cyc and (version == cyc or version.startswith(cyc + ".") or
+                    cyc == version.split(".")[0]):
+            eol = cycle.get("eol")
+            past = False
+            if eol is True:
+                past = True
+            elif isinstance(eol, str):
+                try:
+                    past = datetime.date.fromisoformat(eol) <= today
+                except ValueError:
+                    past = False
+            if past:
+                when = eol if isinstance(eol, str) else "already"
+                return (f"{family} {os_name} is end-of-life (per endoflife.date: "
+                        f"{when}). Standard repositories no longer receive "
+                        f"security updates — plan an OS upgrade.")
+            return None  # live data says supported → trust it over static table
+    return detect_eol(family, os_name)
 
 
 def classify_references(refs):
@@ -722,6 +830,96 @@ def parse_grype(data: dict):
 
 
 # ---------------------------------------------------------------------------
+# OSV-Scanner parser (`osv-scanner --format json`)
+# ---------------------------------------------------------------------------
+# Shape: {"results": [{"source": {...}, "packages": [
+#   {"package": {"name","version","ecosystem"},
+#    "vulnerabilities": [{"id", "affected":[{"ranges":[{"events":[{"fixed":..}]}]}],
+#                         "database_specific": {"severity": "HIGH"}, ...}]}]}]}
+# OSV ecosystems: "Debian:12", "Ubuntu:22.04", "Alpine:v3.19" (OS) and
+# "npm", "PyPI", "Go", "Maven", "RubyGems", "crates.io", "Packagist", "NuGet".
+
+OSV_OS_ECOSYSTEMS = {"debian": "debian", "ubuntu": "ubuntu", "alpine": "alpine",
+                     "red hat": "redhat", "rocky linux": "rocky",
+                     "almalinux": "almalinux", "suse": "suse", "opensuse": "opensuse"}
+OSV_LANG_ECOSYSTEMS = {
+    "npm": "npm", "pypi": "python", "go": "go", "maven": "java",
+    "rubygems": "ruby", "crates.io": "rust", "packagist": "php", "nuget": "dotnet",
+}
+
+
+def _osv_severity(vuln):
+    ds = _d(vuln.get("database_specific"))
+    sev = _s(ds.get("severity")).upper()
+    if sev in SEVERITY_ORDER:
+        return sev
+    # CVSS score fallback
+    for s in _l(vuln.get("severity")):
+        score = _s(_d(s).get("score"))
+        m = re.search(r"/([0-9.]+)$", score) or re.match(r"^([0-9.]+)$", score)
+        if m:
+            try:
+                v = float(m.group(1))
+            except ValueError:
+                continue
+            return ("CRITICAL" if v >= 9 else "HIGH" if v >= 7 else
+                    "MEDIUM" if v >= 4 else "LOW")
+    return "UNKNOWN"
+
+
+def _osv_fixed_version(vuln):
+    """Highest 'fixed' event across affected ranges."""
+    fixes = []
+    for aff in _l(vuln.get("affected")):
+        for rng in _l(_d(aff).get("ranges")):
+            for ev in _l(_d(rng).get("events")):
+                f = _s(_d(ev).get("fixed"))
+                if f:
+                    fixes.append(f)
+    return highest_version(fixes) if fixes else ""
+
+
+def parse_osv(data: dict, os_override: str = None):
+    parsed = _empty_parsed("osv-scan")
+    os_string = ""
+    for result in _l(data.get("results")):
+        if not isinstance(result, dict):
+            continue
+        src = _d(result.get("source"))
+        if _s(src.get("path")):
+            parsed["target"] = _s(src.get("path"))
+        for p in _l(result.get("packages")):
+            if not isinstance(p, dict):
+                continue
+            pkg = _d(p.get("package"))
+            eco_raw = _s(pkg.get("ecosystem"))
+            eco_base = eco_raw.split(":")[0].strip().lower()
+            ecosystem = None
+            if eco_base in OSV_OS_ECOSYSTEMS:
+                if not os_string:
+                    os_string = eco_raw.replace(":", " ")
+            else:
+                ecosystem = OSV_LANG_ECOSYSTEMS.get(eco_base)
+                if not ecosystem:
+                    continue  # unknown ecosystem
+            for v in _l(p.get("vulnerabilities")):
+                if not isinstance(v, dict):
+                    continue
+                refs = [_s(_d(r).get("url")) for r in _l(v.get("references"))]
+                _add_finding(
+                    parsed, pkg=_s(pkg.get("name")),
+                    installed=_s(pkg.get("version")) or None,
+                    fixed=_osv_fixed_version(v),
+                    severity=_osv_severity(v),
+                    vuln_id=_s(v.get("id")),
+                    references=[r for r in refs if r],
+                    ecosystem=ecosystem,
+                    location=_s(src.get("path")) if ecosystem else None)
+    parsed["family"], parsed["os_name"] = parse_os_string(os_override or os_string)
+    return parsed
+
+
+# ---------------------------------------------------------------------------
 # Sysdig scan-result JSON parser (sysdig-cli-scanner / Vulnerability Management API)
 # ---------------------------------------------------------------------------
 # Shape: {"result": {"metadata": {...}, "packages": [
@@ -940,6 +1138,10 @@ def detect_input_format(raw: str):
             return "trivy"
         if "matches" in data:
             return "grype"
+        if isinstance(data, dict) and isinstance(data.get("results"), list) and \
+                any(isinstance(r, dict) and "packages" in r
+                    for r in data["results"]):
+            return "osv"
         if "packages" in data.get("result", data):
             return "sysdig-json"
         return "trivy"
@@ -950,7 +1152,43 @@ def detect_input_format(raw: str):
 # Plan builder
 # ---------------------------------------------------------------------------
 
-def build_plan(parsed, min_severity="UNKNOWN"):
+def parse_scan_file(path, input_fmt="auto", os_override=None):
+    """Read and parse one scan file (or '-' for stdin) into a parsed dict.
+    Shared by the plan path and verify. Exits cleanly on bad input."""
+    try:
+        raw = sys.stdin.read() if path == "-" else \
+            open(path, encoding="utf-8-sig").read()
+    except OSError as e:
+        sys.exit(f"error: cannot read '{path}': {e.strerror or e}")
+    if not raw.strip():
+        sys.exit(f"error: '{path}' is empty.")
+    fmt = input_fmt if input_fmt != "auto" else detect_input_format(raw)
+
+    if fmt in ("trivy", "grype", "osv", "sysdig-json"):
+        try:
+            data = json.loads(raw)
+        except ValueError as e:
+            sys.exit(f"error: '{path}' is not valid JSON ({e}).")
+    if fmt == "trivy":
+        if "Results" not in data:
+            sys.exit(f"error: '{path}' does not look like Trivy JSON (missing 'Results').")
+        parsed = parse_trivy(data)
+        if os_override:
+            parsed["family"], parsed["os_name"] = parse_os_string(os_override)
+    elif fmt == "grype":
+        parsed = parse_grype(data)
+        if os_override:
+            parsed["family"], parsed["os_name"] = parse_os_string(os_override)
+    elif fmt == "osv":
+        parsed = parse_osv(data, os_override=os_override)
+    elif fmt == "sysdig-json":
+        parsed = parse_sysdig_json(data, os_override=os_override)
+    else:
+        parsed = parse_sysdig_csv(raw, os_override=os_override)
+    return parsed
+
+
+def build_plan(parsed, min_severity="UNKNOWN", context="auto", eol_fn=detect_eol):
     pkg_manager = detect_pkg_manager(parsed["family"], parsed["os_name"])
     threshold = SEVERITY_ORDER.get(min_severity.upper(), 0)
 
@@ -1046,13 +1284,21 @@ def build_plan(parsed, min_severity="UNKNOWN"):
         })
     unfixed.sort(key=lambda i: -SEVERITY_ORDER.get(i["severity"], 0))
 
+    third_party = detect_third_party(parsed["target"])
+    if context == "auto":
+        effective_context = "image" if (third_party or
+                                        looks_like_image(parsed["target"])) else "host"
+    else:
+        effective_context = context
+
     return {
         "target": parsed["target"],
         "os": f'{parsed["family"]} {parsed["os_name"]}'.strip(),
         "pkg_manager": pkg_manager,
         "preamble": preamble(pkg_manager) if pkg_manager else None,
-        "eol_warning": detect_eol(parsed["family"], parsed["os_name"]),
-        "third_party": detect_third_party(parsed["target"]),
+        "eol_warning": eol_fn(parsed["family"], parsed["os_name"]),
+        "third_party": third_party,
+        "context": effective_context,
         "items": items,
         "steps": steps,
         "app_steps": app_steps,
@@ -1170,6 +1416,14 @@ def render_markdown(plan):
                      f"fix is upgrading to the newest vendor tag/release. The "
                      f"commands below are reference for the image maintainer — "
                      f"check for a newer tag first.")
+        lines.append("")
+    elif plan.get("context") == "image" and plan["steps"]:
+        lines.append("> 🏗️ **Container image** (immutable infra): the durable fix "
+                     "is to update the base image / package versions in your "
+                     "Dockerfile and **rebuild**, not to patch a running "
+                     "container in place. Use the commands below in the build "
+                     "(e.g. a `RUN` layer), then redeploy — running them in a "
+                     "live container is lost on the next restart.")
         lines.append("")
     if not plan["pkg_manager"]:
         lines.append("> Unsupported OS family for command generation. "
@@ -1325,6 +1579,195 @@ def render_json(plan):
     return json.dumps(plan, indent=2, ensure_ascii=False)
 
 
+# ---------------------------------------------------------------------------
+# verify — closed loop: did the fix actually land?
+# ---------------------------------------------------------------------------
+# Diffs a before/after scan pair. Built entirely on compare_versions (the
+# dpkg-correct comparator with the 10k property test) — no new version logic.
+# "remaining" is sub-typed so an operator knows *why* a finding survived.
+
+def _flatten_findings(parsed):
+    """(pkg, cve) -> {installed, severity, required, ecosystem}. required is the
+    highest fixed version, or None when no fix exists (unfixed bucket)."""
+    out = {}
+
+    def put(pkg, ecosystem, installed, required, vulns):
+        for v in vulns:
+            cve = v.get("id")
+            if not cve:
+                continue
+            out[(pkg, cve)] = {
+                "installed": _s(installed) or None,
+                "severity": v.get("severity", "UNKNOWN"),
+                "required": required,
+                "ecosystem": ecosystem,
+            }
+
+    for pkg, f in parsed["findings"].items():
+        req = highest_version(f["fixed_versions"]) if f["fixed_versions"] else None
+        put(pkg, None, f["installed"], req, f["vulns"])
+    for (eco, pkg), a in parsed.get("app", {}).items():
+        req = highest_version(a["fixed_versions"]) if a["fixed_versions"] else None
+        put(pkg, eco, a["installed"], req, a["vulns"])
+    for pkg, u in parsed["unfixed"].items():
+        put(pkg, u.get("ecosystem"), u["installed"], None, u["vulns"])
+    return out
+
+
+def _classify(before, after):
+    """Return (category, reason, detail) for a (pkg,cve) present in both."""
+    bi, ai = before["installed"], after["installed"]
+    required = after["required"] or before["required"]
+
+    # fix version exists and we're at/above it, yet still flagged
+    if required and ai and compare_versions(ai, required) >= 0:
+        return ("anomaly", "installed_at_or_above_fix",
+                f"installed {ai} ≥ fix {required}, still reported "
+                f"(scanner cache / version-string mismatch?)")
+    if required is None:
+        return ("remaining", "no_fix", "no fixed version available")
+    # a fix appeared since baseline (was unfixable) — more informative than
+    # "untouched", so check before the unchanged-version branch
+    if before["required"] is None and after["required"] is not None:
+        return ("remaining", "now_fixable",
+                f"fix newly published — was unfixable at baseline; upgrade to {required}")
+    if ai and bi and compare_versions(ai, bi) < 0:
+        return ("remaining", "regressed", f"version went backwards: {ai}")
+    if ai and bi and compare_versions(ai, bi) == 0:
+        return ("remaining", "untouched", f"still {ai} (fix {required})")
+    return ("remaining", "upgraded_but_short",
+            f"upgraded to {ai} but need {required}")
+
+
+def verify(before_parsed, after_parsed):
+    b = _flatten_findings(before_parsed)
+    a = _flatten_findings(after_parsed)
+    b_pkgs = {p for (p, _) in b}
+    a_pkgs = {p for (p, _) in a}
+
+    resolved, remaining, new, anomalies = [], [], [], []
+
+    for key, bf in b.items():
+        pkg, cve = key
+        if key not in a:
+            reason = "package_removed" if pkg not in a_pkgs else "not_reported"
+            resolved.append({"package": pkg, "cve": cve,
+                             "severity": bf["severity"], "reason": reason})
+            continue
+        af = a[key]
+        cat, reason, detail = _classify(bf, af)
+        row = {"package": pkg, "cve": cve, "severity": af["severity"],
+               "reason": reason, "detail": detail,
+               "installed": af["installed"], "required": af["required"] or bf["required"],
+               "backport": detect_backport(af["required"] or bf["required"] or "")}
+        (anomalies if cat == "anomaly" else remaining).append(row)
+
+    for key, af in a.items():
+        if key not in b:
+            new.append({"package": key[0], "cve": key[1],
+                        "severity": af["severity"], "installed": af["installed"],
+                        "required": af["required"]})
+
+    # scoring: "fixable" = things we could have fixed (resolved + remaining that
+    # had a fix). no_fix remaining is expected, not counted against the rate.
+    actionable_remaining = [r for r in remaining if r["reason"] != "no_fix"]
+    unfixable_remaining = [r for r in remaining if r["reason"] == "no_fix"]
+    fixable = len(resolved) + len(actionable_remaining)
+    rate = (len(resolved) / fixable) if fixable else 1.0
+
+    return {
+        "before": before_parsed["target"], "after": after_parsed["target"],
+        "os": f'{after_parsed["family"]} {after_parsed["os_name"]}'.strip(),
+        "different_target": before_parsed["target"] != after_parsed["target"],
+        "score": {
+            "fixable": fixable, "resolved": len(resolved),
+            "rate": round(rate, 3),
+            "remaining_actionable": len(actionable_remaining),
+            "new": len(new), "unfixable_remaining": len(unfixable_remaining),
+            "anomalies": len(anomalies),
+        },
+        "resolved": sorted(resolved, key=lambda r: r["package"]),
+        "remaining": sorted(actionable_remaining + unfixable_remaining,
+                            key=lambda r: -SEVERITY_ORDER.get(r["severity"], 0)),
+        "new": sorted(new, key=lambda r: -SEVERITY_ORDER.get(r["severity"], 0)),
+        "anomalies": anomalies,
+    }
+
+
+_REASON_LABEL = {
+    "untouched": "untouched",
+    "upgraded_but_short": "upgraded but short of the fix",
+    "regressed": "version regressed",
+    "no_fix": "no fix available (expected)",
+    "now_fixable": "🟢 fix newly published — was unfixable at baseline",
+}
+
+
+def render_verify_markdown(v):
+    L = ["# Remediation verification", ""]
+    L.append(f"**{v['before']} → {v['after']}** ({v['os']})")
+    s = v["score"]
+    L.append("")
+    L.append(f"Fixed **{s['resolved']} / {s['fixable']}** fixable findings — "
+             f"**{int(s['rate'] * 100)}%**. {s['remaining_actionable']} remaining, "
+             f"{s['new']} new, {s['unfixable_remaining']} unfixable (expected)"
+             + (f", {s['anomalies']} anomalies" if s['anomalies'] else "") + ".")
+    L.append("")
+    if v["different_target"]:
+        L.append("> ⚠️ Comparing different targets — treat cross-target results "
+                 "as advisory.")
+        L.append("")
+
+    actionable = [r for r in v["remaining"] if r["reason"] != "no_fix"]
+    if actionable:
+        L.append(f"## ⛔ Still vulnerable ({len(actionable)}) — action needed")
+        L.append("")
+        for r in actionable:
+            line = (f"- **{r['package']}** `{r['cve']}` {r['severity']} — "
+                    f"{_REASON_LABEL.get(r['reason'], r['reason'])}: {r['detail']}")
+            L.append(line)
+            if r["reason"] == "upgraded_but_short" and r["backport"]:
+                L.append(f"  - Vendor backport ({r['backport']}): the fix version "
+                         f"won't match the upstream number.")
+        L.append("")
+    if v["new"]:
+        L.append(f"## 🆕 New since baseline ({len(v['new'])})")
+        L.append("")
+        for r in v["new"]:
+            L.append(f"- **{r['package']}** `{r['cve']}` {r['severity']}")
+        L.append("")
+    if v["anomalies"]:
+        L.append(f"## 🔎 Anomalies ({len(v['anomalies'])})")
+        L.append("")
+        for r in v["anomalies"]:
+            L.append(f"- **{r['package']}** `{r['cve']}` — {r['detail']}")
+        L.append("")
+    if v["resolved"]:
+        L.append(f"## ✅ Resolved ({len(v['resolved'])})")
+        L.append("")
+        L.append(", ".join(sorted({r["cve"] for r in v["resolved"]})))
+        L.append("")
+    nofix = [r for r in v["remaining"] if r["reason"] == "no_fix"]
+    if nofix:
+        L.append(f"## 🟡 No fix available — still present, expected ({len(nofix)})")
+        L.append("")
+        for r in nofix:
+            L.append(f"- **{r['package']}** `{r['cve']}` {r['severity']}")
+        L.append("")
+    return "\n".join(L)
+
+
+def verify_exit_code(v, fail_on):
+    """exit 2 if any actionable-remaining or new finding at/above fail_on."""
+    if not fail_on:
+        return 0
+    threshold = SEVERITY_ORDER.get(fail_on.upper(), 0)
+    pool = [r for r in v["remaining"] if r["reason"] != "no_fix"] + v["new"]
+    if any(SEVERITY_ORDER.get(r["severity"], 0) >= threshold for r in pool):
+        return 2
+    return 0
+
+
 def _yaml_str(s):
     """Quote a string for our generated YAML (conservative: always quote)."""
     return json.dumps(_s(s), ensure_ascii=False)
@@ -1412,8 +1855,13 @@ def main():
                     default="markdown")
     ap.add_argument("--min-severity", default="UNKNOWN",
                     choices=["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"])
+    ap.add_argument("--context", default="auto", choices=["auto", "host", "image"],
+                    help="Remediation context. 'image' recommends rebuilding "
+                         "from an updated Dockerfile (immutable infra); 'host' "
+                         "patches in place. Default: auto-detect from the target.")
     ap.add_argument("--input",
-                    choices=["auto", "trivy", "grype", "sysdig-csv", "sysdig-json"],
+                    choices=["auto", "trivy", "grype", "osv", "sysdig-csv",
+                             "sysdig-json"],
                     default="auto", help="Input format (default: auto-detect)")
     ap.add_argument("--os", dest="os_override", default=None, metavar="FAMILY:VERSION",
                     help="OS override for inputs lacking OS metadata, "
@@ -1440,8 +1888,27 @@ def main():
                     choices=["LOW", "MEDIUM", "HIGH", "CRITICAL"],
                     help="Exit with code 2 if any finding at or above this "
                          "severity exists (CI gate)")
+    ap.add_argument("--baseline", default=None, metavar="BEFORE_SCAN",
+                    help="Verify mode: diff this before-scan against the after-"
+                         "scan given as the positional argument, and report "
+                         "whether the fixes landed.")
+    ap.add_argument("--check-eol", action="store_true",
+                    help="Check live EOL data from endoflife.date (network; "
+                         "cached ~24h). Default off — the static table is used "
+                         "so remedify stays offline/zero-dependency by default.")
     ap.add_argument("--version", action="version", version=f"remedify {__version__}")
     args = ap.parse_args()
+
+    if args.baseline:
+        if not args.scan:
+            sys.exit("error: verify needs two scans: "
+                     "remedify --baseline before.json after.json")
+        before = parse_scan_file(args.baseline, args.input, args.os_override)
+        after = parse_scan_file(args.scan, args.input, args.os_override)
+        v = verify(before, after)
+        print(render_json(v) if args.format == "json"
+              else render_verify_markdown(v))
+        sys.exit(verify_exit_code(v, args.fail_on))
 
     if args.from_sysdig:
         import os as _os
@@ -1462,35 +1929,7 @@ def main():
         if not args.scan:
             sys.exit("error: provide a scan file (or '-' for stdin), "
                      "or use --from-sysdig.")
-        try:
-            raw = sys.stdin.read() if args.scan == "-" else \
-                open(args.scan, encoding="utf-8-sig").read()
-        except OSError as e:
-            sys.exit(f"error: cannot read '{args.scan}': {e.strerror or e}")
-        if not raw.strip():
-            sys.exit(f"error: '{args.scan}' is empty.")
-        input_format = args.input if args.input != "auto" else detect_input_format(raw)
-
-        if input_format in ("trivy", "grype", "sysdig-json"):
-            try:
-                data = json.loads(raw)
-            except ValueError as e:
-                sys.exit(f"error: '{args.scan}' is not valid JSON ({e}).")
-        if input_format == "trivy":
-            if "Results" not in data:
-                sys.exit("error: input does not look like Trivy JSON (missing 'Results').")
-            parsed = parse_trivy(data)
-            if args.os_override:
-                parsed["family"], parsed["os_name"] = parse_os_string(args.os_override)
-        elif input_format == "grype":
-            parsed = parse_grype(data)
-            if args.os_override:
-                parsed["family"], parsed["os_name"] = parse_os_string(args.os_override)
-        elif input_format == "sysdig-json":
-            parsed = parse_sysdig_json(data, os_override=args.os_override)
-        else:
-            parsed = parse_sysdig_csv(raw, os_override=args.os_override)
-        parsed_list = [parsed]
+        parsed_list = [parse_scan_file(args.scan, args.input, args.os_override)]
 
     for parsed in parsed_list:
         if not parsed["family"] and (parsed["findings"] or parsed["unfixed"]):
@@ -1498,7 +1937,9 @@ def main():
                   "(e.g. --os ubuntu:22.04) to generate OS package commands.",
                   file=sys.stderr)
 
-    plans = [build_plan(p, args.min_severity) for p in parsed_list]
+    eol_fn = detect_eol_live if args.check_eol else detect_eol
+    plans = [build_plan(p, args.min_severity, args.context, eol_fn=eol_fn)
+             for p in parsed_list]
 
     fleet = build_fleet_summary(plans) if len(plans) > 1 else None
 
