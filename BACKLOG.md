@@ -1,0 +1,52 @@
+# v0.2 Backlog
+
+Findings from running the PoC against real Trivy output
+(`aquasecurity/trivy` integration-test golden file, ubuntu-1804 image).
+The parser survived; the *report quality* is where real data exposed gaps.
+
+## 1. Source-package grouping (high priority)
+
+Real scans report one CVE across every binary package built from the same
+source. CVE-2019-5094 appeared as **4 separate findings** (e2fsprogs,
+libcom-err2, libext2fs2, libss2) with 4 separate commands — when the real
+remediation is **one action**:
+
+```bash
+apt-get install --only-upgrade e2fsprogs libcom-err2 libext2fs2 libss2
+```
+
+Fix: group by source package (derivable from PURL / identical
+source-version pairs) and emit one consolidated step.
+
+## 2. "No fix available" section (high priority)
+
+`bash` (CVE-2019-18276, `Status: affected`, no `FixedVersion`) was silently
+dropped. Users need to see it with guidance: no vendor fix yet — options are
+mitigation, acceptance, or workaround. Silent omission erodes trust in the
+report.
+
+## 3. Use Trivy's `Status` field (medium)
+
+Real output carries `Status`: `fixed`, `affected`, `will_not_fix`,
+`end_of_life`. Map these to distinct report sections:
+- `will_not_fix` → "vendor declined; assess exposure"
+- `end_of_life` → see item 4
+
+## 4. EOL / ESM awareness (medium)
+
+The test target was Ubuntu 18.04 — standard repos no longer receive patches;
+fixes require Ubuntu Pro (ESM). remedify should detect EOL distro versions
+and say so: "this fix requires ESM enrollment" instead of emitting a command
+that will not find the package.
+
+## 5. Dedup identical advisory links (low)
+
+USN-4142-1 and USN-4142-2 both surfaced (correct, but near-duplicates).
+Consider collapsing to the newest per advisory family.
+
+## Test-environment note
+
+The sandbox blocks GitHub binary downloads, so verification used Trivy's
+committed golden files (real output format, version-controlled by the Trivy
+project). Next step: run `trivy image --format json` locally against a
+production-like image and feed the raw output in.

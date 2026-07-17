@@ -1,0 +1,99 @@
+{
+  "target": "prod-web-host (Ubuntu 22.04)",
+  "os": "ubuntu 22.04",
+  "pkg_manager": "apt",
+  "preamble": "apt-get update",
+  "items": [
+    {
+      "package": "libc6",
+      "installed": "2.35-0ubuntu3.6",
+      "fix_version": "2.35-0ubuntu3.8",
+      "severity": "CRITICAL",
+      "cves": [
+        "CVE-2024-33599"
+      ],
+      "command": "apt-get install --only-upgrade libc6=2.35-0ubuntu3.8",
+      "backport": "Ubuntu",
+      "advisories": [
+        [
+          "Ubuntu USN",
+          "https://ubuntu.com/security/notices/USN-6762-1"
+        ],
+        [
+          "NVD",
+          "https://nvd.nist.gov/vuln/detail/CVE-2024-33599"
+        ]
+      ],
+      "hints": [
+        "libc update: reboot strongly recommended (all processes link against it)."
+      ]
+    },
+    {
+      "package": "libssl3",
+      "installed": "3.0.2-0ubuntu1.15",
+      "fix_version": "3.0.2-0ubuntu1.18",
+      "severity": "HIGH",
+      "cves": [
+        "CVE-2024-5535",
+        "CVE-2024-6119"
+      ],
+      "command": "apt-get install --only-upgrade libssl3=3.0.2-0ubuntu1.18",
+      "backport": "Ubuntu",
+      "advisories": [
+        [
+          "Ubuntu USN",
+          "https://ubuntu.com/security/notices/USN-6986-1"
+        ],
+        [
+          "Ubuntu USN",
+          "https://ubuntu.com/security/notices/USN-6903-1"
+        ],
+        [
+          "NVD",
+          "https://nvd.nist.gov/vuln/detail/CVE-2024-6119"
+        ]
+      ],
+      "hints": [
+        "Restart services that link against OpenSSL (nginx, sshd, etc.)."
+      ]
+    },
+    {
+      "package": "linux-image-generic",
+      "installed": "5.15.0.105.102",
+      "fix_version": "5.15.0.107.104",
+      "severity": "HIGH",
+      "cves": [
+        "CVE-2024-26923"
+      ],
+      "command": "apt-get install --only-upgrade linux-image-generic=5.15.0.107.104",
+      "backport": null,
+      "advisories": [
+        [
+          "Ubuntu USN",
+          "https://ubuntu.com/security/notices/USN-6767-1"
+        ]
+      ],
+      "hints": [
+        "Kernel update: reboot required."
+      ]
+    },
+    {
+      "package": "curl",
+      "installed": "7.81.0-1ubuntu1.15",
+      "fix_version": "7.81.0-1ubuntu1.16",
+      "severity": "MEDIUM",
+      "cves": [
+        "CVE-2024-2398"
+      ],
+      "command": "apt-get install --only-upgrade curl=7.81.0-1ubuntu1.16",
+      "backport": "Ubuntu",
+      "advisories": [
+        [
+          "Ubuntu USN",
+          "https://ubuntu.com/security/notices/USN-6718-1"
+        ]
+      ],
+      "hints": []
+    }
+  ]
+}

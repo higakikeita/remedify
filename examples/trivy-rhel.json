@@ -1,0 +1,48 @@
+{
+  "ArtifactName": "registry.example.com/api-base:9.3 (RHEL 9.3)",
+  "Metadata": {
+    "OS": { "Family": "redhat", "Name": "9.3" }
+  },
+  "Results": [
+    {
+      "Target": "api-base",
+      "Class": "os-pkgs",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-2961",
+          "PkgName": "glibc",
+          "InstalledVersion": "2.34-83.el9_3.7",
+          "FixedVersion": "2.34-83.el9_3.12",
+          "Severity": "HIGH",
+          "Title": "glibc: iconv ISO-2022-CN-EXT buffer overflow",
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2024:1963",
+            "https://access.redhat.com/security/cve/CVE-2024-2961"
+          ]
+        },
+        {
+          "VulnerabilityID": "CVE-2023-38546",
+          "PkgName": "curl",
+          "InstalledVersion": "7.76.1-26.el9_3.2",
+          "FixedVersion": "7.76.1-26.el9_3.3",
+          "Severity": "LOW",
+          "Title": "curl: cookie injection with none file",
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2023:6745"
+          ]
+        },
+        {
+          "VulnerabilityID": "CVE-2024-0567",
+          "PkgName": "gnutls",
+          "InstalledVersion": "3.7.6-23.el9",
+          "FixedVersion": "3.7.6-23.el9_3.3",
+          "Severity": "MEDIUM",
+          "Title": "gnutls: rejects certificate chain with distributed trust",
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2024:0533"
+          ]
+        }
+      ]
+    }
+  ]
+}
