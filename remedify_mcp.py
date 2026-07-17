@@ -46,7 +46,11 @@ TOOLS = [
                 },
                 "scan_path": {
                     "type": "string",
-                    "description": "Path to a scan file (alternative to scan_content).",
+                    "description": "Path to a scan file (alternative to "
+                                   "scan_content). Disabled unless the server "
+                                   "sets REMEDIFY_MCP_ALLOWED_DIR; only files "
+                                   "inside that directory can be read. Prefer "
+                                   "scan_content.",
                 },
                 "format": {
                     "type": "string", "enum": ["markdown", "json"],
@@ -99,10 +103,27 @@ TOOLS = [
 ]
 
 
+def _resolve_scan_path(path):
+    """MCP tool arguments are assembled by an AI agent, which can be influenced
+    by untrusted content (prompt injection). Never open an arbitrary path.
+    scan_path is only honored when REMEDIFY_MCP_ALLOWED_DIR is set, and only
+    for files that resolve inside it (defeats ../ traversal and symlinks)."""
+    allowed = os.environ.get("REMEDIFY_MCP_ALLOWED_DIR")
+    if not allowed:
+        raise ValueError(
+            "scan_path is disabled. Pass scan_content instead, or set "
+            "REMEDIFY_MCP_ALLOWED_DIR to permit reading files from one directory.")
+    allowed_real = os.path.realpath(allowed)
+    target = os.path.realpath(path)
+    if os.path.commonpath([allowed_real, target]) != allowed_real:
+        raise ValueError(f"scan_path must resolve inside {allowed_real}")
+    return target
+
+
 def tool_generate(args):
     raw = args.get("scan_content") or ""
     if not raw and args.get("scan_path"):
-        with open(args["scan_path"], encoding="utf-8-sig") as f:
+        with open(_resolve_scan_path(args["scan_path"]), encoding="utf-8-sig") as f:
             raw = f.read()
     if not raw.strip():
         raise ValueError("provide scan_content or scan_path")

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.2 — security (trust boundary hardening)
+
+Second-pass security review found two more attacker-reachable paths (distinct
+from the 0.9.1 shell-injection fix):
+
+- **MCP: no arbitrary local file reads.** `generate_remediation_plan`'s
+  `scan_path` is agent-controlled and prompt-injection reachable. It is now
+  disabled unless `REMEDIFY_MCP_ALLOWED_DIR` is set, and only reads files that
+  resolve (realpath) inside that directory — defeats `../` traversal and
+  symlinks. Prefer `scan_content`.
+- **`--from-sysdig`: don't trust API responses in URLs, or leak the token on
+  redirect.** Server-provided scan-result IDs are validated (`[A-Za-z0-9._-]+`)
+  before going into a URL path; a custom redirect handler strips the
+  `Authorization: Bearer` header on any cross-origin redirect (urllib, unlike
+  requests, would otherwise resend it). `--api-url` scheme/host validated.
+- New MCP file-access tests; identifier-validation tests.
+
+remedify's three trust boundaries — scan input, MCP tool args, Sysdig API
+responses — now all validate external strings against a character-set
+whitelist before use.
+
 ## 0.9.1 — security
 
 - **Fix command injection via crafted package names/versions** (external

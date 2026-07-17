@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -242,6 +242,16 @@ _APP_NAME_RE = re.compile(r"^[^\x00-\x1f`$;&|<>\\\n\r]+$")
 def is_safe_os_package(name, version):
     return bool(_PKG_NAME_RE.match(_s(name))) and \
         bool(_PKG_VERSION_RE.match(_s(version)))
+
+
+# Opaque identifiers from API responses (scan result IDs) go into URL paths.
+# A server-controlled "../" or absolute-URL-like value must not redirect our
+# request. Whitelist, don't trust the server.
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def is_safe_identifier(value):
+    return bool(_IDENTIFIER_RE.match(_s(value)))
 
 
 def detect_pkg_manager(family: str, os_name: str):
@@ -825,14 +835,38 @@ def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: s
     token = (token or "").strip(" \t\r\n　 ")
 
     import urllib.error
+    import urllib.parse
+
+    base = urllib.parse.urlsplit(api_url.rstrip("/"))
+    if base.scheme not in ("http", "https") or not base.netloc:
+        sys.exit(f"error: invalid --api-url '{api_url}'.")
+
+    class _NoAuthCrossOrigin(urllib.request.HTTPRedirectHandler):
+        """Follow redirects, but strip the bearer token if a redirect leaves
+        the original origin — urllib otherwise resends Authorization to the new
+        host (no token-stripping like requests has)."""
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            new = super().redirect_request(req, fp, code, msg, headers, newurl)
+            if new is not None:
+                dest = urllib.parse.urlsplit(newurl)
+                if (dest.scheme, dest.netloc) != (base.scheme, base.netloc):
+                    try:
+                        new.remove_header("Authorization")
+                    except Exception:
+                        pass
+            return new
+
+    opener = urllib.request.build_opener(
+        _NoAuthCrossOrigin(),
+        urllib.request.HTTPSHandler(context=ctx))
 
     def get(path):
         req = urllib.request.Request(
-            api_url.rstrip("/") + path,
+            base.geturl() + path,
             headers={"Authorization": f"Bearer {token}",
                      "Accept": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+            with opener.open(req, timeout=30) as resp:
                 return json.loads(resp.read().decode())
         except ssl.SSLCertVerificationError as e:
             sys.exit(f"error: TLS verification failed ({e.reason}). If you are "
@@ -874,11 +908,17 @@ def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: s
         results = []
         for row in rows:
             rid = _s(row.get("resultId")) or _s(row.get("id"))
+            if not is_safe_identifier(rid):
+                print(f"warning: skipping result with unexpected id {rid!r}",
+                      file=sys.stderr)
+                continue
             name = _s(row.get("mainAssetName")) or _s(row.get("resourceName"))
             print(f"info: fetching {rid} ({name})", file=sys.stderr)
             results.append(get(f"{prefix}/results/{rid}"))
         return results
 
+    if not is_safe_identifier(result_id):
+        sys.exit(f"error: --result-id must match [A-Za-z0-9._-]+ (got {result_id!r}).")
     for p in prefixes:
         try:
             return [get(f"{p}/results/{result_id}")]

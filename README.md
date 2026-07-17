@@ -144,10 +144,15 @@ own commands. Claude Desktop config:
 }
 ```
 
-Tools: `generate_remediation_plan` (paste or point to any supported scan
-file) and `fetch_sysdig_plan` (live from the Sysdig VM API, with fleet
-summary). The agent reasons and talks; remedify computes the plan — same
-input, same output, every time.
+Tools: `generate_remediation_plan` (pass scan content) and
+`fetch_sysdig_plan` (live from the Sysdig VM API, with fleet summary). The
+agent reasons and talks; remedify computes the plan — same input, same
+output, every time.
+
+> Security note: MCP tool arguments are assembled by the agent, so the server
+> never reads arbitrary local paths. `scan_content` is the recommended input.
+> `scan_path` is disabled unless you set `REMEDIFY_MCP_ALLOWED_DIR`, and even
+> then only reads files that resolve inside that directory.
 
 ## CLI reference
 

@@ -50,13 +50,13 @@ class TestMcpServer(unittest.TestCase):
         self.assertIn("spring-beans", text)
         self.assertIn("Remediation plan", text)
 
-    def test_generate_plan_from_path_json_format(self):
+    def test_generate_plan_json_format(self):
+        with open(os.path.join(EXAMPLES, "grype-ubuntu.json"), encoding="utf-8") as f:
+            scan = f.read()
         out = rpc(INIT, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                          "params": {"name": "generate_remediation_plan",
-                                    "arguments": {
-                                        "scan_path": os.path.join(
-                                            EXAMPLES, "grype-ubuntu.json"),
-                                        "format": "json"}}})
+                                    "arguments": {"scan_content": scan,
+                                                  "format": "json"}}})
         plan = json.loads(out[1]["result"]["content"][0]["text"])
         self.assertEqual(plan["target"], "myapp:1.0")
 

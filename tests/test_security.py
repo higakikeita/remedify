@@ -102,6 +102,64 @@ class TestNoInjectionInOutputs(unittest.TestCase):
         self.assertFalse(remedify.is_safe_os_package("libfoo", "1.0; rm -rf /"))
         self.assertFalse(remedify.is_safe_os_package("../etc/passwd", "1.0"))
 
+    def test_identifier_validator(self):
+        self.assertTrue(remedify.is_safe_identifier("18c30b7ce5a3dc5d07f1e76da5a08cb2"))
+        self.assertFalse(remedify.is_safe_identifier("../../admin"))
+        self.assertFalse(remedify.is_safe_identifier("http://evil/x"))
+        self.assertFalse(remedify.is_safe_identifier("a/b"))
+
+
+class TestMcpFileAccess(unittest.TestCase):
+    """MCP tool args are agent-controlled (prompt-injection reachable):
+    scan_path must not read arbitrary files."""
+
+    def _call(self, arguments, env=None):
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), "..", "remedify_mcp.py")
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                        "clientInfo": {"name": "t", "version": "0"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": {"name": "generate_remediation_plan", "arguments": arguments}},
+        ]
+        stdin = "\n".join(json.dumps(m) for m in msgs) + "\n"
+        full_env = dict(os.environ)
+        full_env.pop("REMEDIFY_MCP_ALLOWED_DIR", None)
+        if env:
+            full_env.update(env)
+        r = subprocess.run([sys.executable, script], input=stdin,
+                           capture_output=True, text=True, env=full_env, timeout=60)
+        return [json.loads(l) for l in r.stdout.strip().splitlines()]
+
+    def test_scan_path_disabled_by_default(self):
+        out = self._call({"scan_path": "/etc/passwd"})
+        result = out[1]["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("disabled", result["content"][0]["text"])
+        # the file's content must not appear in the response
+        self.assertNotIn("root:", result["content"][0]["text"])
+
+    def test_traversal_blocked_when_dir_allowed(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        out = self._call({"scan_path": os.path.join(d, "..", "..", "etc", "passwd")},
+                         env={"REMEDIFY_MCP_ALLOWED_DIR": d})
+        result = out[1]["result"]
+        self.assertTrue(result["isError"])
+        self.assertNotIn("root:", result["content"][0]["text"])
+
+    def test_allowed_file_reads(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scan.json")
+        with open(p, "w") as f:
+            json.dump(trivy_with(pkg="libssl3", version="3.0.2-0ubuntu1.18"), f)
+        out = self._call({"scan_path": p}, env={"REMEDIFY_MCP_ALLOWED_DIR": d})
+        result = out[1]["result"]
+        self.assertFalse(result["isError"], result["content"][0]["text"])
+        self.assertIn("libssl3", result["content"][0]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()
