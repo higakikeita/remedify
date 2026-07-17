@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.1 — security
+
+- **Fix command injection via crafted package names/versions** (external
+  security review). Scan results are attacker-influenced (a malicious base
+  image controls its own package DB); an unvalidated name like
+  `libfoo$(cmd)` became a live shell command in `--format shell`. OS package
+  names and versions are now whitelisted against distro naming rules and
+  **rejected** (surfaced, never silently dropped, never escaped-and-run) if
+  they contain anything outside `[A-Za-z0-9.+~:_-]`. Lang-package names are
+  validated against output-framing-breaking characters. New `test_security.py`
+  with 12 injection payloads as a regression guard.
+- Shell script header now states commands are derived from scan input and
+  validated against distro naming rules.
+
 ## 0.9.0
 
 - **`--format ansible`**: multi-distro remediation playbook with pinned
