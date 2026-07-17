@@ -533,6 +533,82 @@ class TestGrype(unittest.TestCase):
         self.assertIn("USN-6986-1", md)
 
 
+class TestThirdPartyDetection(unittest.TestCase):
+    """v0.7: vendor-built images -> 'upgrade the tag' primary recommendation."""
+
+    CASES = [
+        ("registry.k8s.io/kube-apiserver:v1.32.0@sha256:ebc0", "Kubernetes"),
+        ("asia-northeast1-artifactregistry.gcr.io/gke-release/gke-release/fluent-bit:v0.0.422", "Google GKE"),
+        ("debian:12", "Docker Official Images"),
+        ("redis:7.0.4", "Docker Official Images"),
+        ("quay.io/sysdig/agent-slim:14.5.1", "the vendor"),
+        ("mcr.microsoft.com/dotnet/runtime:8.0", "Microsoft"),
+        ("bitnami/minideb:buster-amd64", "the vendor"),
+    ]
+    NOT_THIRD_PARTY = [
+        "prod-api:v2.3.1",                       # customer image, bare but not official
+        "registry.acme.com/payments/api:1.0",    # private registry
+        "acme/backend:latest",                   # own namespace
+        "prod-web-host (Ubuntu 22.04)",          # host scan
+    ]
+
+    def test_vendor_images_detected(self):
+        for target, vendor in self.CASES:
+            self.assertEqual(remedify.detect_third_party(target), vendor, target)
+
+    def test_customer_images_not_flagged(self):
+        for target in self.NOT_THIRD_PARTY:
+            self.assertIsNone(remedify.detect_third_party(target), target)
+
+    def test_banner_in_markdown(self):
+        data = load("grype-ubuntu.json")
+        data["source"]["target"]["userInput"] = "registry.k8s.io/kube-proxy:v1.32.0"
+        plan = remedify.build_plan(remedify.parse_grype(data))
+        md = remedify.render_markdown(plan)
+        self.assertIn("Third-party image", md)
+        self.assertIn("newest vendor tag", md)
+
+    def test_no_banner_for_own_image(self):
+        plan = remedify.build_plan(remedify.parse_grype(load("grype-ubuntu.json")))
+        self.assertIsNone(plan["third_party"])  # myapp:1.0 is not official
+        self.assertNotIn("Third-party image", remedify.render_markdown(plan))
+
+
+class TestFleetSummary(unittest.TestCase):
+    """v0.7: one fix -> N workloads aggregation."""
+
+    def _plans(self):
+        # two workloads sharing the libssl3 fix (grype fixture + trivy fixture)
+        p1 = remedify.build_plan(remedify.parse_grype(load("grype-ubuntu.json")))
+        p2 = remedify.build_plan(remedify.parse_trivy(load("trivy-ubuntu.json")))
+        return [p1, p2]
+
+    def test_shared_fix_aggregated(self):
+        summary = remedify.build_fleet_summary(self._plans())
+        self.assertEqual(summary["workloads"], 2)
+        libssl = next(e for e in summary["top_fixes"]
+                      if "libssl3" in e["label"])
+        self.assertEqual(len(libssl["targets"]), 2)  # same command, both targets
+
+    def test_sorted_by_coverage_first(self):
+        summary = remedify.build_fleet_summary(self._plans())
+        counts = [len(e["targets"]) for e in summary["top_fixes"]]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+
+    def test_markdown_render(self):
+        md = remedify.render_fleet_markdown(
+            remedify.build_fleet_summary(self._plans()))
+        self.assertIn("Fleet summary", md)
+        self.assertIn("2 workloads", md)
+
+    def test_app_steps_aggregate_across_targets(self):
+        p1 = remedify.build_plan(remedify.parse_sysdig_json(load("sysdig-scan-result.json")))
+        p2 = remedify.build_plan(remedify.parse_grype(load("grype-ubuntu.json")))
+        summary = remedify.build_fleet_summary([p1, p2])
+        lodash = next(e for e in summary["top_fixes"] if "lodash" in e["label"])
+        self.assertEqual(len(lodash["targets"]), 2)  # same npm fix in both
+
+
 class TestRenderers(unittest.TestCase):
     def setUp(self):
         self.plan = remedify.build_plan(

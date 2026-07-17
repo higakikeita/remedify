@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -139,6 +139,50 @@ def app_fix_action(ecosystem: str, package: str, version: str):
     if ecosystem == "dotnet":
         return f"`dotnet add package {package} --version {version}`."
     return f"Update `{package}` to `{version}` in your dependency manifest."
+
+
+# Third-party / vendor image detection: you don't build these, so the
+# highest-leverage fix is upgrading to the newest vendor tag, not patching
+# in place. Patterns are heuristics — extend as needed.
+THIRD_PARTY_REGISTRY_PATTERNS = [
+    (re.compile(r"^registry\.k8s\.io/"), "Kubernetes"),
+    (re.compile(r"^k8s\.gcr\.io/"), "Kubernetes"),
+    (re.compile(r"gke-release/"), "Google GKE"),
+    (re.compile(r"^gcr\.io/(google-containers|distroless|gke-release)"), "Google"),
+    (re.compile(r"^mcr\.microsoft\.com/"), "Microsoft"),
+    (re.compile(r"^public\.ecr\.aws/"), "AWS"),
+    (re.compile(r"amazonaws\.com/"), "AWS"),
+    (re.compile(r"^registry\.(access\.)?redhat\.(com|io)/"), "Red Hat"),
+    (re.compile(r"^nvcr\.io/"), "NVIDIA"),
+    (re.compile(r"^quay\.io/"), "the vendor"),
+    (re.compile(r"^(docker\.io/)?(library/)?(bitnami|grafana|prom|curlimages|"
+                r"weaveworksdemos|istio|envoyproxy|fluent|calico)/"), "the vendor"),
+]
+# Bare official Docker Hub images ("debian:12", "redis:7.0.4", ...)
+DOCKER_OFFICIAL_IMAGES = {
+    "debian", "ubuntu", "alpine", "centos", "fedora", "rockylinux", "almalinux",
+    "amazonlinux", "busybox", "redis", "nginx", "tomcat", "postgres", "mysql",
+    "mariadb", "node", "python", "golang", "php", "ruby", "openjdk", "httpd",
+    "traefik", "memcached", "mongo", "rabbitmq", "haproxy", "registry", "caddy",
+}
+
+
+def detect_third_party(target: str):
+    """Return a vendor label if the image looks vendor-built, else None."""
+    t = _s(target).strip()
+    if not t:
+        return None
+    for pattern, vendor in THIRD_PARTY_REGISTRY_PATTERNS:
+        if pattern.search(t):
+            return vendor
+    # bare official image: no registry, no namespace ("redis:7.0.4")
+    name = t.split("@")[0].split(":")[0]
+    if "/" not in name and name.lower() in DOCKER_OFFICIAL_IMAGES:
+        return "Docker Official Images"
+    if name.startswith("docker.io/library/") and \
+            name.split("/")[-1] in DOCKER_OFFICIAL_IMAGES:
+        return "Docker Official Images"
+    return None
 
 
 # Trivy Status values that mean "no command to give you"
@@ -875,11 +919,76 @@ def build_plan(parsed, min_severity="UNKNOWN"):
         "pkg_manager": pkg_manager,
         "preamble": preamble(pkg_manager) if pkg_manager else None,
         "eol_warning": detect_eol(parsed["family"], parsed["os_name"]),
+        "third_party": detect_third_party(parsed["target"]),
         "items": items,
         "steps": steps,
         "app_steps": app_steps,
         "unfixed": unfixed,
     }
+
+
+# ---------------------------------------------------------------------------
+# Fleet summary (multi-workload aggregation)
+# ---------------------------------------------------------------------------
+
+def build_fleet_summary(plans, top=15):
+    """Aggregate identical fixes across workloads: one fix -> N targets."""
+    agg = {}
+
+    def add(key, kind, label, command, severity, cves, flags, target):
+        e = agg.setdefault(key, {
+            "kind": kind, "label": label, "command": command,
+            "severity": severity, "cves": set(), "targets": set(),
+            "kev": False, "exploitable": False, "in_use": False,
+        })
+        if SEVERITY_ORDER.get(severity, 0) > SEVERITY_ORDER.get(e["severity"], 0):
+            e["severity"] = severity
+        e["cves"].update(cves)
+        e["targets"].add(target)
+        for f in ("kev", "exploitable", "in_use"):
+            e[f] = e[f] or flags.get(f, False)
+
+    for plan in plans:
+        target = plan["target"]
+        for s in plan["steps"]:
+            key = ("os", s["command"] or f"{s['packages']}={s['fix_version']}")
+            add(key, "os", ", ".join(s["packages"]), s["command"],
+                s["severity"], s["cves"], s, target)
+        for s in plan["app_steps"]:
+            key = ("app", s["ecosystem"], s["package"], s["fix_version"])
+            add(key, "app", f"{s['package']} -> {s['fix_version']} ({s['ecosystem']})",
+                None, s["severity"], s["cves"], s, target)
+
+    entries = list(agg.values())
+    entries.sort(key=lambda e: (-len(e["targets"]),
+                                -SEVERITY_ORDER.get(e["severity"], 0),
+                                -(e["kev"] * 4 + e["exploitable"] * 2 + e["in_use"])))
+    for e in entries:
+        e["cves"] = sorted(e["cves"])
+        e["targets"] = sorted(e["targets"])
+    return {"workloads": len(plans), "unique_fixes": len(entries),
+            "top_fixes": entries[:top]}
+
+
+def render_fleet_markdown(summary):
+    lines = ["# Fleet summary", ""]
+    lines.append(f"- **Workloads**: {summary['workloads']}")
+    lines.append(f"- **Unique fixes across fleet**: {summary['unique_fixes']}")
+    lines.append("")
+    lines.append("## Top fixes (one action, most coverage)")
+    lines.append("")
+    for e in summary["top_fixes"]:
+        n = len(e["targets"])
+        badges = _priority_badges(e)
+        badge = f" — 🚨 {', '.join(badges)}" if badges else ""
+        lines.append(f"- **{e['label']}** `{e['severity']}` — fixes "
+                     f"**{n} workload{'s' if n > 1 else ''}**, "
+                     f"{len(e['cves'])} CVEs{badge}")
+        if e["command"]:
+            lines.append(f"  - `{e['command']}`")
+        lines.append(f"  - Targets: {', '.join(f'`{t}`' for t in e['targets'])}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +1029,13 @@ def render_markdown(plan):
     lines.append("")
     if plan["eol_warning"]:
         lines.append(f"> ⚠️ **EOL**: {plan['eol_warning']}")
+        lines.append("")
+    if plan["third_party"]:
+        lines.append(f"> ℹ️ **Third-party image** (built by {plan['third_party']}): "
+                     f"you likely don't build this image, so the highest-leverage "
+                     f"fix is upgrading to the newest vendor tag/release. The "
+                     f"commands below are reference for the image maintainer — "
+                     f"check for a newer tag first.")
         lines.append("")
     if not plan["pkg_manager"]:
         lines.append("> Unsupported OS family for command generation. "
@@ -1003,6 +1119,10 @@ def render_shell(plan):
     ]
     if plan["eol_warning"]:
         lines.append(f"# EOL WARNING: {plan['eol_warning']}")
+        lines.append("")
+    if plan["third_party"]:
+        lines.append(f"# THIRD-PARTY IMAGE (built by {plan['third_party']}): prefer "
+                     f"upgrading to the newest vendor tag over patching in place.")
         lines.append("")
     if plan["preamble"]:
         lines.append(plan["preamble"])
@@ -1144,11 +1264,24 @@ def main():
 
     plans = [build_plan(p, args.min_severity) for p in parsed_list]
 
+    fleet = build_fleet_summary(plans) if len(plans) > 1 else None
+
     if args.format == "json":
-        print(render_json(plans[0]) if len(plans) == 1
-              else json.dumps(plans, indent=2, ensure_ascii=False))
+        if len(plans) == 1:
+            print(render_json(plans[0]))
+        else:
+            print(json.dumps({"fleet_summary": fleet, "plans": plans},
+                             indent=2, ensure_ascii=False))
     elif args.format == "shell":
-        parts = [render_shell(plans[0])]
+        parts = []
+        if fleet:
+            head = ["# ==== FLEET SUMMARY: top fixes across "
+                    f"{fleet['workloads']} workloads ===="]
+            for e in fleet["top_fixes"][:5]:
+                head.append(f"#   {e['label']} [{e['severity']}] -> "
+                            f"{len(e['targets'])} workloads")
+            parts.append("\n".join(head))
+        parts.append(render_shell(plans[0]))
         for plan in plans[1:]:
             body = render_shell(plan)
             body = "\n".join(l for l in body.splitlines()
@@ -1156,7 +1289,9 @@ def main():
             parts.append(f"# {'=' * 60}\n{body}")
         print("\n\n".join(parts))
     else:
-        print("\n\n---\n\n".join(render_markdown(plan) for plan in plans))
+        parts = [render_fleet_markdown(fleet)] if fleet else []
+        parts.extend(render_markdown(plan) for plan in plans)
+        print("\n\n---\n\n".join(parts))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0
+
+- **Fleet summary**: multi-workload runs now lead with "one fix → N
+  workloads" aggregation, sorted by coverage, severity, and priority
+  signals; included in markdown, shell (comment header), and JSON
+  (`fleet_summary` key)
+- **Third-party image detection**: vendor-built images (registry.k8s.io,
+  GKE system images, Docker official, quay.io, MCR, ECR public, etc.) get
+  "upgrade to the newest vendor tag" as the primary recommendation
+- ROADMAP.md added (v0.8: MCP server + PyPI)
+
 ## 0.6.0
 
 - **Grype JSON parser** (`grype <target> -o json`, auto-detected) — remedify
