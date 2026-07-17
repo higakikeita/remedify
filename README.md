@@ -1,5 +1,10 @@
 # remedify
 
+[![CI](https://github.com/higakikeita/remedify/actions/workflows/ci.yml/badge.svg)](https://github.com/higakikeita/remedify/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
+[![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](remedify.py)
+
 > **copa patches container images. remedify tells you how to patch everything else.**
 
 Vulnerability scanners are great at telling you *what* is vulnerable and *which version* fixes it. They are terrible at telling you *what command to run*. After triage, every team asks the same question: "So how exactly do I fix this on my OS?" — and the answer today is "go read the Ubuntu/RHEL/Amazon Linux docs."

@@ -363,6 +363,140 @@ class TestSysdigApiV1(unittest.TestCase):
         self.assertIn("package in use at runtime", md)
 
 
+class TestVersionSemantics(unittest.TestCase):
+    """dpkg/rpm version ordering — wrong picks = wrong remediation commands."""
+
+    CASES = [
+        # (a, b, expected_highest)
+        ("1.0~rc1", "1.0", "1.0"),               # tilde sorts before release
+        ("1.0~beta1", "1.0~rc1", "1.0~rc1"),
+        ("2:1.0", "1:9.9", "2:1.0"),             # epoch wins
+        ("1.0", "1.0.1", "1.0.1"),               # longer release
+        ("1.44.1-1ubuntu1.2", "1.44.1-1ubuntu1.10", "1.44.1-1ubuntu1.10"),  # numeric not lexical
+        ("10.4", "10.3_p1-r0", "10.4"),          # alpine style
+        ("3.0.2-0ubuntu1.9", "3.0.2-0ubuntu1.18", "3.0.2-0ubuntu1.18"),
+        ("2.34-83.el9_3.7", "2.34-83.el9_3.12", "2.34-83.el9_3.12"),
+        ("1.2.3", "1.2.3", "1.2.3"),             # equal
+    ]
+
+    def test_highest_version_semantics(self):
+        for a, b, want in self.CASES:
+            got = remedify.highest_version([a, b])
+            self.assertEqual(got, want, f"highest({a}, {b}) = {got}, want {want}")
+            got = remedify.highest_version([b, a])  # order-independent
+            self.assertEqual(got, want, f"highest({b}, {a}) = {got}, want {want}")
+
+    def test_compare_symmetry(self):
+        self.assertEqual(remedify.compare_versions("1.0", "1.0"), 0)
+        self.assertEqual(remedify.compare_versions("1.0~rc1", "1.0"), -1)
+        self.assertEqual(remedify.compare_versions("1.0", "1.0~rc1"), 1)
+
+
+class TestCliRobustness(unittest.TestCase):
+    """The CLI must never traceback on bad input: clean error + exit code 1."""
+
+    def _run(self, *args, stdin=None):
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), "..", "remedify.py")
+        return subprocess.run([sys.executable, script, *args],
+                              capture_output=True, text=True, input=stdin)
+
+    def assertCleanError(self, result, fragment=""):
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("error:", result.stderr)
+        if fragment:
+            self.assertIn(fragment, result.stderr)
+
+    def test_missing_file(self):
+        self.assertCleanError(self._run("/nonexistent/scan.json"), "cannot read")
+
+    def test_broken_json(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write('{"Results": [broken')
+        self.assertCleanError(self._run(f.name), "not valid JSON")
+
+    def test_empty_file(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write("")
+        self.assertCleanError(self._run(f.name), "empty")
+
+    def test_csv_missing_columns(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+            f.write("Foo,Bar\n1,2\n")
+        self.assertCleanError(self._run(f.name), "required column")
+
+    def test_no_args_without_from_sysdig(self):
+        self.assertCleanError(self._run())
+
+    def test_from_sysdig_without_credentials(self):
+        import subprocess, os as _os
+        env = dict(_os.environ)
+        env.pop("SYSDIG_API_TOKEN", None)
+        script = os.path.join(os.path.dirname(__file__), "..", "remedify.py")
+        r = subprocess.run([sys.executable, script, "--from-sysdig"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_stdin_input(self):
+        with open(os.path.join(EXAMPLES, "trivy-ubuntu.json"), encoding="utf-8") as f:
+            r = self._run("-", stdin=f.read())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Remediation plan", r.stdout)
+
+    def test_bom_and_crlf_csv(self):
+        import tempfile
+        content = ("﻿CVE ID,Severity,Package,Version,Fix Version,Host\r\n"
+                   "CVE-2024-1,High,openssl,1.0,1.1,web-01\r\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(content)
+        r = self._run(f.name, "--os", "ubuntu:22.04")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("openssl", r.stdout)
+
+    def test_exit_zero_on_success(self):
+        r = self._run(os.path.join(EXAMPLES, "sysdig-scan-result.json"))
+        self.assertEqual(r.returncode, 0)
+
+
+class TestParserNullSafety(unittest.TestCase):
+    """Real-world data has nulls everywhere. No field may be assumed present."""
+
+    def test_trivy_all_nulls(self):
+        data = {"ArtifactName": None, "Metadata": None,
+                "Results": [{"Class": "os-pkgs", "Vulnerabilities": [
+                    {"VulnerabilityID": None, "PkgName": None,
+                     "InstalledVersion": None, "FixedVersion": None,
+                     "Severity": None}]}]}
+        plan = remedify.build_plan(remedify.parse_trivy(data))
+        remedify.render_markdown(plan)
+        remedify.render_shell(plan)
+
+    def test_sysdig_json_minimal(self):
+        plan = remedify.build_plan(remedify.parse_sysdig_json({"packages": {}}))
+        remedify.render_markdown(plan)
+
+    def test_sysdig_json_null_fields(self):
+        data = {"metadata": None,
+                "packages": {"p": {"type": "os", "name": "x", "version": None,
+                                   "vulnerabilitiesRefs": ["v", "missing-ref"]}},
+                "vulnerabilities": {"v": {"name": "CVE-1", "severity": None,
+                                          "fixVersion": None}}}
+        plan = remedify.build_plan(remedify.parse_sysdig_json(data))
+        self.assertEqual([u["package"] for u in plan["unfixed"]], ["x"])
+
+    def test_severity_variants(self):
+        self.assertEqual(remedify._sysdig_severity("high"), "HIGH")
+        self.assertEqual(remedify._sysdig_severity({"value": "Critical"}), "CRITICAL")
+        self.assertEqual(remedify._sysdig_severity(0), "CRITICAL")
+        self.assertEqual(remedify._sysdig_severity(None), "NONE")  # -> UNKNOWN downstream
+
+
 class TestRenderers(unittest.TestCase):
     def setUp(self):
         self.plan = remedify.build_plan(

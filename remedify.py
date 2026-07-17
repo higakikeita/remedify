@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -251,18 +251,41 @@ def post_update_hints(package: str):
 # ---------------------------------------------------------------------------
 
 def _version_key(v: str):
-    parts = re.split(r"[^0-9a-zA-Z]+", v or "")
+    """Tokenize a version for comparison. dpkg/rpm-flavoured:
+    epoch handled naturally (leading digits), '~' sorts BEFORE anything
+    (1.0~rc1 < 1.0), digits sort above alphabetic tokens."""
     key = []
-    for p in parts:
-        if p.isdigit():
-            key.append((1, int(p), ""))
-        else:
-            key.append((0, 0, p))
+    for chunk in re.split(r"(~)", v or ""):
+        if chunk == "~":
+            key.append((-1, 0, ""))
+            continue
+        for p in re.split(r"[^0-9a-zA-Z]+", chunk):
+            if not p:
+                continue
+            if p.isdigit():
+                key.append((1, int(p), ""))
+            else:
+                key.append((0, 0, p))
     return key
 
 
+_PAD = (0, 0, "")
+
+
+def compare_versions(a: str, b: str):
+    """-1 / 0 / 1. Shorter versions are padded so 1.0 < 1.0.1 but 1.0~rc1 < 1.0."""
+    ka, kb = _version_key(a), _version_key(b)
+    for i in range(max(len(ka), len(kb))):
+        ea = ka[i] if i < len(ka) else _PAD
+        eb = kb[i] if i < len(kb) else _PAD
+        if ea != eb:
+            return -1 if ea < eb else 1
+    return 0
+
+
 def highest_version(versions):
-    return max(versions, key=_version_key)
+    import functools
+    return max(versions, key=functools.cmp_to_key(compare_versions))
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +426,8 @@ SYSDIG_OS_PKG_TYPES = {"os", "deb", "rpm", "apk", "dpkg", ""}
 
 def _sysdig_header_map(fieldnames):
     mapping = {}
-    lowered = {(f or "").strip().lower(): f for f in fieldnames or []}
+    lowered = {(f or "").lstrip("﻿").strip().lower(): f
+               for f in fieldnames or []}
     for key, aliases in SYSDIG_COLUMN_ALIASES.items():
         for alias in aliases:
             if alias in lowered:
@@ -979,18 +1003,28 @@ def main():
         if not args.scan:
             sys.exit("error: provide a scan file (or '-' for stdin), "
                      "or use --from-sysdig.")
-        raw = sys.stdin.read() if args.scan == "-" else open(args.scan, encoding="utf-8").read()
+        try:
+            raw = sys.stdin.read() if args.scan == "-" else \
+                open(args.scan, encoding="utf-8-sig").read()
+        except OSError as e:
+            sys.exit(f"error: cannot read '{args.scan}': {e.strerror or e}")
+        if not raw.strip():
+            sys.exit(f"error: '{args.scan}' is empty.")
         input_format = args.input if args.input != "auto" else detect_input_format(raw)
 
+        if input_format in ("trivy", "sysdig-json"):
+            try:
+                data = json.loads(raw)
+            except ValueError as e:
+                sys.exit(f"error: '{args.scan}' is not valid JSON ({e}).")
         if input_format == "trivy":
-            data = json.loads(raw)
             if "Results" not in data:
                 sys.exit("error: input does not look like Trivy JSON (missing 'Results').")
             parsed = parse_trivy(data)
             if args.os_override:
                 parsed["family"], parsed["os_name"] = parse_os_string(args.os_override)
         elif input_format == "sysdig-json":
-            parsed = parse_sysdig_json(json.loads(raw), os_override=args.os_override)
+            parsed = parse_sysdig_json(data, os_override=args.os_override)
         else:
             parsed = parse_sysdig_csv(raw, os_override=args.os_override)
 
