@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -149,6 +149,26 @@ UNFIXED_STATUS_LABELS = {
     "end_of_life": "Distro version is EOL — no fix will be published",
     "": "No fixed version reported",
 }
+
+
+
+def _d(x):
+    """Coerce to dict."""
+    return x if isinstance(x, dict) else {}
+
+
+def _l(x):
+    """Coerce to list."""
+    return x if isinstance(x, list) else []
+
+
+def _s(x):
+    """Coerce to string ('' for None/invalid)."""
+    if isinstance(x, str):
+        return x
+    if x is None or isinstance(x, (dict, list)):
+        return ""
+    return str(x)
 
 
 def detect_pkg_manager(family: str, os_name: str):
@@ -293,36 +313,40 @@ def highest_version(versions):
 # ---------------------------------------------------------------------------
 
 def parse_trivy(data: dict):
-    meta = data.get("Metadata", {}) or {}
-    os_info = meta.get("OS", {}) or {}
-    family = os_info.get("Family", "")
-    os_name = os_info.get("Name", "")
-    target = data.get("ArtifactName", "unknown")
+    meta = _d(data.get("Metadata"))
+    os_info = _d(meta.get("OS"))
+    family = _s(os_info.get("Family"))
+    os_name = _s(os_info.get("Name"))
+    target = _s(data.get("ArtifactName")) or "unknown"
 
     parsed = _empty_parsed(target, family, os_name)
 
-    for result in data.get("Results", []) or []:
+    for result in _l(data.get("Results")):
+        if not isinstance(result, dict):
+            continue
         klass = result.get("Class")
         is_os = klass in (None, "os-pkgs")
-        ecosystem = LANG_ECOSYSTEMS.get((result.get("Type") or "").lower())
+        ecosystem = LANG_ECOSYSTEMS.get(_s(result.get("Type")).lower())
         if not is_os and (klass != "lang-pkgs" or not ecosystem):
             continue
-        for v in result.get("Vulnerabilities", []) or []:
-            refs = v.get("References") or []
-            if v.get("PrimaryURL"):
-                refs = [v["PrimaryURL"]] + refs
+        for v in _l(result.get("Vulnerabilities")):
+            if not isinstance(v, dict):
+                continue
+            refs = [r for r in _l(v.get("References")) if isinstance(r, str)]
+            if _s(v.get("PrimaryURL")):
+                refs = [_s(v.get("PrimaryURL"))] + refs
             _add_finding(
                 parsed,
-                pkg=v.get("PkgName"),
-                installed=v.get("InstalledVersion"),
-                fixed=(v.get("FixedVersion") or "").strip(),
-                severity=(v.get("Severity") or "UNKNOWN").upper(),
-                vuln_id=v.get("VulnerabilityID"),
-                status=(v.get("Status") or "").lower(),
-                title=v.get("Title", ""),
+                pkg=_s(v.get("PkgName")),
+                installed=_s(v.get("InstalledVersion")) or None,
+                fixed=_s(v.get("FixedVersion")).strip(),
+                severity=(_s(v.get("Severity")) or "UNKNOWN").upper(),
+                vuln_id=_s(v.get("VulnerabilityID")),
+                status=_s(v.get("Status")).lower(),
+                title=_s(v.get("Title")),
                 references=refs,
                 ecosystem=None if is_os else ecosystem,
-                location=result.get("Target") if not is_os else None,
+                location=_s(result.get("Target")) if not is_os else None,
             )
     return parsed
 
@@ -438,7 +462,7 @@ def _sysdig_header_map(fieldnames):
 
 def parse_os_string(os_string: str):
     """'Ubuntu 22.04' / 'ubuntu:22.04' / 'rhel 9.3' -> (family, name)."""
-    s = (os_string or "").strip().replace(":", " ")
+    s = _s(os_string).strip().replace(":", " ")
     if not s:
         return "", ""
     parts = s.split()
@@ -452,7 +476,11 @@ def parse_os_string(os_string: str):
 
 
 def parse_sysdig_csv(text: str, os_override: str = None):
-    reader = csv.DictReader(io.StringIO(text))
+    try:  # tolerate semicolon/tab-delimited exports (Excel locale variants)
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
     cols = _sysdig_header_map(reader.fieldnames)
     required = {"vuln_id", "package", "fixed"}
     missing = required - set(cols)
@@ -510,32 +538,41 @@ SYSDIG_NUMERIC_SEVERITY = {
 def _sysdig_severity(sev):
     if isinstance(sev, dict):
         sev = sev.get("value", "UNKNOWN")
+    if isinstance(sev, bool):
+        return "UNKNOWN"
     if isinstance(sev, (int, float)):
         return SYSDIG_NUMERIC_SEVERITY.get(int(sev), "UNKNOWN")
-    return (str(sev) or "UNKNOWN").upper()
+    return (_s(sev) or "UNKNOWN").upper() or "UNKNOWN"
 
 
 def parse_sysdig_json(data: dict, os_override: str = None):
-    result = data.get("result", data)
-    meta = result.get("metadata", {}) or {}
-    target = (meta.get("pullString") or meta.get("imageId")
-              or result.get("mainAssetName") or "sysdig-scan")
-    os_string = meta.get("baseOs", "") or meta.get("os", "")
+    result = data.get("result", data) if isinstance(data, dict) else {}
+    result = _d(result)
+    meta = _d(result.get("metadata"))
+    target = (_s(meta.get("pullString")) or _s(meta.get("imageId"))
+              or _s(result.get("mainAssetName")) or "sysdig-scan")
+    os_string = _s(meta.get("baseOs")) or _s(meta.get("os"))
 
     # packages: list (cli-scanner) or dict keyed by id (VM API v1)
-    packages = result.get("packages") or []
-    pkg_iter = packages.values() if isinstance(packages, dict) else packages
+    packages = result.get("packages")
+    if isinstance(packages, dict):
+        pkg_iter = packages.values()
+    else:
+        pkg_iter = _l(packages)
 
     # VM API v1 keeps vulnerabilities in a separate table referenced by id
-    vuln_table = result.get("vulnerabilities") or {}
+    vuln_table = result.get("vulnerabilities")
     if isinstance(vuln_table, list):
-        vuln_table = {v.get("id") or v.get("name"): v for v in vuln_table}
+        vuln_table = {(_s(v.get("id")) or _s(v.get("name"))): v
+                      for v in vuln_table if isinstance(v, dict)}
+    else:
+        vuln_table = _d(vuln_table)
 
     parsed = _empty_parsed(target)
     for pkg in pkg_iter:
         if not isinstance(pkg, dict):
             continue
-        pkg_type = (pkg.get("type") or "").lower()
+        pkg_type = _s(pkg.get("type")).lower()
         ecosystem = None
         if pkg_type not in SYSDIG_OS_PKG_TYPES:
             ecosystem = LANG_ECOSYSTEMS.get(pkg_type)
@@ -543,24 +580,25 @@ def parse_sysdig_json(data: dict, os_override: str = None):
                 continue
 
         vulns = pkg.get("vulns")
-        if vulns is None:
-            refs = (pkg.get("vulnsRefs") or pkg.get("vulnerabilitiesRefs")
-                    or pkg.get("vulnRefs") or [])
-            vulns = [vuln_table[r] for r in refs if r in vuln_table]
+        if not isinstance(vulns, list):
+            refs = (_l(pkg.get("vulnsRefs")) or _l(pkg.get("vulnerabilitiesRefs"))
+                    or _l(pkg.get("vulnRefs")))
+            vulns = [vuln_table[r] for r in refs
+                     if isinstance(r, str) and isinstance(vuln_table.get(r), dict)]
 
         for v in vulns or []:
             if not isinstance(v, dict):
-                v = vuln_table.get(v, {})
-                if not v:
+                v = vuln_table.get(v) if isinstance(v, str) else None
+                if not isinstance(v, dict):
                     continue
-            fixed = (v.get("fixedInVersion") or v.get("fixVersion")
-                     or pkg.get("suggestedFix") or "")
-            _add_finding(parsed, pkg=pkg.get("name"),
-                         installed=pkg.get("version"), fixed=fixed,
+            fixed = (_s(v.get("fixedInVersion")) or _s(v.get("fixVersion"))
+                     or _s(pkg.get("suggestedFix")))
+            _add_finding(parsed, pkg=_s(pkg.get("name")),
+                         installed=_s(pkg.get("version")) or None, fixed=fixed,
                          severity=_sysdig_severity(v.get("severity")),
-                         vuln_id=v.get("name") or v.get("vulnName") or v.get("cve"),
+                         vuln_id=_s(v.get("name")) or _s(v.get("vulnName")) or _s(v.get("cve")),
                          ecosystem=ecosystem,
-                         location=pkg.get("path"),
+                         location=_s(pkg.get("path")) or None,
                          in_use=bool(pkg.get("isRunning")),
                          exploitable=bool(v.get("exploitable")),
                          kev=bool(v.get("cisaKev")))
@@ -834,7 +872,7 @@ def render_markdown(plan):
         lines.append("")
         if len(step["packages"]) > 1:
             lines.append(f"- Packages: {', '.join(f'`{p}`' for p in step['packages'])} "
-                         f"(same source, one update)")
+                         f"(same installed/fixed versions — updated together)")
         lines.append(f"- Installed: `{step['installed']}` -> Fix: `{step['fix_version']}`")
         lines.append(f"- CVEs: {', '.join(step['cves'])}")
         badges = _priority_badges(step)

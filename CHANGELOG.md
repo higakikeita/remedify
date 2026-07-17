@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.2
+
+- **Real-OS validation**: generated apt commands verified against a live
+  Ubuntu 22.04 system (`apt-get --dry-run` accepts all output, including
+  consolidated multi-package commands)
+- **Structural fuzzing**: 20,000 mutated-document runs with zero uncaught
+  exceptions; type-coercion guards on every external field; a seeded
+  600-iteration fuzz test now runs in CI (`FUZZ_N=10000` for deep passes)
+- **Scale**: 30,000 vulnerabilities / 10,000 packages processed in <0.2s
+- CSV delimiter sniffing (semicolon/tab Excel-locale exports)
+- Honest consolidation label (identical version pairs, not "same source")
+
 ## 0.5.1
 
 - Correct dpkg/rpm version semantics: `~` sorts before release (`1.0~rc1 < 1.0`),

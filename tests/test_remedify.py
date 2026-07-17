@@ -494,7 +494,9 @@ class TestParserNullSafety(unittest.TestCase):
         self.assertEqual(remedify._sysdig_severity("high"), "HIGH")
         self.assertEqual(remedify._sysdig_severity({"value": "Critical"}), "CRITICAL")
         self.assertEqual(remedify._sysdig_severity(0), "CRITICAL")
-        self.assertEqual(remedify._sysdig_severity(None), "NONE")  # -> UNKNOWN downstream
+        self.assertEqual(remedify._sysdig_severity(None), "UNKNOWN")
+        self.assertEqual(remedify._sysdig_severity(True), "UNKNOWN")
+        self.assertEqual(remedify._sysdig_severity([]), "UNKNOWN")
 
 
 class TestRenderers(unittest.TestCase):
