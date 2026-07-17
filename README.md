@@ -29,19 +29,23 @@ $ remedify scan.json
 - Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6986-1)
 ```
 
-## Why not just use copa?
+## How does this relate to copa and Sysdig Sage?
 
-[Copacetic](https://project-copacetic.github.io/copacetic/website/) is excellent — for **container images**. It patches an image directly by adding a patch layer, no rebuild needed. But it does not help with:
+Honest answer: they overlap, and each occupies a different spot.
 
-| Gap | copa | remedify |
-|---|---|---|
-| Container images | ✅ patches directly | 🔜 emits copa-compatible workflows |
-| **Hosts / VMs / bare metal** | ❌ | ✅ per-distro commands |
-| Backport explanation (Ubuntu/RHEL fixed version ≠ upstream) | ❌ | ✅ |
-| Reboot / service-restart guidance | ❌ | ✅ |
-| Vendor advisory links next to the fix | ❌ | ✅ |
+[Copacetic](https://project-copacetic.github.io/copacetic/website/) directly patches **container images** (adds a patch layer, no rebuild). Sysdig Sage Remediation generates high-quality, AI-assisted remediation strategies for **container images inside the Sysdig UI** — including dependency bump commands and base-image advice.
 
-They are complementary: containers → copa, everything else → remedify.
+| | copa | Sysdig Sage | remedify |
+|---|---|---|---|
+| Container images | ✅ patches directly | ✅ AI remediation strategies (UI) | ✅ deterministic plan |
+| **Hosts / VMs / bare metal** | ❌ | ❓ (not yet, per docs) | ✅ per-distro commands |
+| Backport explanation (fixed version ≠ upstream) | ❌ | ❌ | ✅ |
+| Reboot / service-restart guidance | ❌ | ❌ | ✅ |
+| Batch / CI / scriptable (all workloads at once) | ✅ per image | ❌ per-image UI action | ✅ one command, JSON/shell out |
+| Deterministic output (same input → same plan, diffable) | ✅ | ❌ AI-generated | ✅ |
+| Works without Sysdig (Trivy/Grype users) | ✅ | ❌ | ✅ |
+
+Position: containers with a registry workflow → copa; interactive triage inside Sysdig → Sage; **hosts, automation pipelines, and scanner-agnostic remediation plans → remedify**.
 
 ## Features (v0.2)
 
