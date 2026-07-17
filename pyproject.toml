@@ -20,8 +20,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/USER/remedify"
-Issues = "https://github.com/USER/remedify/issues"
+Homepage = "https://github.com/higakikeita/remedify"
+Issues = "https://github.com/higakikeita/remedify/issues"
 
 [project.scripts]
 remedify = "remedify:main"
