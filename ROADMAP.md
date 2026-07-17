@@ -2,7 +2,7 @@
 
 remedify is developed on two tracks: growing as a standalone OSS tool, and
 serving as a field-validated prototype for scanner vendors (see README's
-copa/Sage comparison). Milestones below gate on working, tested code — not
+copa comparison). Milestones below gate on working, tested code — not
 dates.
 
 ## v0.7 — Fleet intelligence (in progress)

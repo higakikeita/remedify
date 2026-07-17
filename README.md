@@ -56,23 +56,20 @@ python3 remedify.py report.csv --os ubuntu:22.04
 
 No dependencies — any Python 3.9+ runs it as-is.
 
-## How does this relate to copa and Sysdig Sage?
+## Why not just use copa?
 
-Honest answer: they overlap, and each occupies a different spot.
+[Copacetic](https://project-copacetic.github.io/copacetic/website/) is excellent — for **container images**. It patches an image directly by adding a patch layer, no rebuild needed. remedify covers what copa doesn't:
 
-[Copacetic](https://project-copacetic.github.io/copacetic/website/) directly patches **container images** (adds a patch layer, no rebuild). Sysdig Sage Remediation generates high-quality, AI-assisted remediation strategies for **container images inside the Sysdig UI** — including dependency bump commands and base-image advice.
+| | copa | remedify |
+|---|---|---|
+| Container images | ✅ patches directly | ✅ deterministic plan |
+| **Hosts / VMs / bare metal** | ❌ | ✅ per-distro commands |
+| Backport explanation (fixed version ≠ upstream) | ❌ | ✅ |
+| Reboot / service-restart guidance | ❌ | ✅ |
+| Language packages (Java/npm/Go…) | ❌ | ✅ update + rebuild steps |
+| Ansible playbook / CI gate output | ❌ | ✅ |
 
-| | copa | Sysdig Sage | remedify |
-|---|---|---|---|
-| Container images | ✅ patches directly | ✅ AI remediation strategies (UI) | ✅ deterministic plan |
-| **Hosts / VMs / bare metal** | ❌ | ❓ (not yet, per docs) | ✅ per-distro commands |
-| Backport explanation (fixed version ≠ upstream) | ❌ | ❌ | ✅ |
-| Reboot / service-restart guidance | ❌ | ❌ | ✅ |
-| Batch / CI / scriptable (all workloads at once) | ✅ per image | ❌ per-image UI action | ✅ one command, JSON/shell out |
-| Deterministic output (same input → same plan, diffable) | ✅ | ❌ AI-generated | ✅ |
-| Works without Sysdig (Trivy/Grype users) | ✅ | ❌ | ✅ |
-
-Position: containers with a registry workflow → copa; interactive triage inside Sysdig → Sage; **hosts, automation pipelines, and scanner-agnostic remediation plans → remedify**.
+They are complementary: containers with a registry workflow → copa; **hosts, language packages, and automation pipelines → remedify**.
 
 ## Features
 
