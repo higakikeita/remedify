@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- **MCP server** (`remedify_mcp.py`): expose remedify to AI agents via the
+  Model Context Protocol — stdio JSON-RPC implemented with stdlib only
+  (zero dependencies preserved). Tools: `generate_remediation_plan`,
+  `fetch_sysdig_plan` (with fleet summary). Protocol-level test suite.
+
 ## 0.7.0
 
 - **Fleet summary**: multi-workload runs now lead with "one fix → N

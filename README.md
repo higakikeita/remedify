@@ -130,6 +130,27 @@ apt-get install --only-upgrade e2fsprogs=1.44.1-1ubuntu1.2 ...
 
 **3. Machine-readable JSON** (`--format json`) — feed it to your ticketing system, chatbot, or AI agent.
 
+## Use from AI agents (MCP)
+
+remedify ships an MCP server (`remedify_mcp.py`, zero dependencies) so AI
+agents get **deterministic** remediation plans instead of generating their
+own commands. Claude Desktop config:
+
+```json
+"mcpServers": {
+  "remedify": {
+    "command": "python3",
+    "args": ["/path/to/remedify/remedify_mcp.py"],
+    "env": { "SYSDIG_API_TOKEN": "..." }
+  }
+}
+```
+
+Tools: `generate_remediation_plan` (paste or point to any supported scan
+file) and `fetch_sysdig_plan` (live from the Sysdig VM API, with fleet
+summary). The agent reasons and talks; remedify computes the plan — same
+input, same output, every time.
+
 ## CLI reference
 
 | Option | Values | Default | Purpose |
