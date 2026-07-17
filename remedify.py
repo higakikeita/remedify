@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -520,6 +520,61 @@ def parse_sysdig_csv(text: str, os_override: str = None):
 
 
 # ---------------------------------------------------------------------------
+# Grype JSON parser (`grype <target> -o json`)
+# ---------------------------------------------------------------------------
+
+GRYPE_OS_TYPES = {"deb", "rpm", "apk"}
+GRYPE_LANG_TYPES = {
+    "npm": "npm", "python": "python", "java-archive": "java",
+    "go-module": "go", "gem": "ruby", "rust-crate": "rust",
+    "dotnet": "dotnet", "php-composer": "php",
+}
+
+
+def parse_grype(data: dict):
+    distro = _d(data.get("distro"))
+    family = _s(distro.get("name")).lower()
+    os_name = _s(distro.get("version"))
+    source = _d(data.get("source"))
+    target = _s(_d(source.get("target")).get("userInput")) or \
+        _s(source.get("target")) or "grype-scan"
+
+    parsed = _empty_parsed(target, family, os_name)
+    for m in _l(data.get("matches")):
+        if not isinstance(m, dict):
+            continue
+        v = _d(m.get("vulnerability"))
+        a = _d(m.get("artifact"))
+        a_type = _s(a.get("type")).lower()
+        ecosystem = None
+        if a_type not in GRYPE_OS_TYPES:
+            ecosystem = GRYPE_LANG_TYPES.get(a_type)
+            if not ecosystem:
+                continue
+        fix = _d(v.get("fix"))
+        fixed = ""
+        if _s(fix.get("state")) == "fixed":
+            versions = [x for x in _l(fix.get("versions")) if isinstance(x, str) and x]
+            fixed = versions[0] if len(versions) == 1 else \
+                (highest_version(versions) if versions else "")
+        locations = [_s(_d(loc).get("path")) for loc in _l(a.get("locations"))]
+        location = next((p for p in locations if p), None)
+        _add_finding(
+            parsed,
+            pkg=_s(a.get("name")),
+            installed=_s(a.get("version")) or None,
+            fixed=fixed,
+            severity=(_s(v.get("severity")) or "UNKNOWN").upper(),
+            vuln_id=_s(v.get("id")),
+            status="" if fixed else _s(fix.get("state")).replace("-", "_"),
+            references=[u for u in _l(v.get("urls")) if isinstance(u, str)],
+            ecosystem=ecosystem,
+            location=location if ecosystem else None,
+        )
+    return parsed
+
+
+# ---------------------------------------------------------------------------
 # Sysdig scan-result JSON parser (sysdig-cli-scanner / Vulnerability Management API)
 # ---------------------------------------------------------------------------
 # Shape: {"result": {"metadata": {...}, "packages": [
@@ -609,7 +664,7 @@ def parse_sysdig_json(data: dict, os_override: str = None):
 
 
 def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: str = None,
-                 insecure: bool = False, ca_bundle: str = None):
+                 insecure: bool = False, ca_bundle: str = None, limit: int = 1):
     """Fetch a scan result from the Sysdig Vulnerability Management API.
 
     Without --result-id, lists runtime results and picks the first match.
@@ -652,10 +707,10 @@ def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: s
     last_err = None
 
     if not result_id:
-        suffix = "/runtime-results?limit=1"
+        suffix = f"/runtime-results?limit={max(1, int(limit))}"
         if filter_expr:
             import urllib.parse
-            suffix = "/runtime-results?limit=1&filter=" + urllib.parse.quote(filter_expr)
+            suffix += "&filter=" + urllib.parse.quote(filter_expr)
         listing = prefix = None
         for p in prefixes:
             try:
@@ -675,19 +730,21 @@ def fetch_sysdig(api_url: str, token: str, result_id: str = None, filter_expr: s
                      f"(last: {last_err}). Your tenant may use a different "
                      "API version — run with a Sysdig scan-result JSON file "
                      "instead, and open an issue with your region.")
-        rows = listing.get("data") or []
+        rows = [r for r in _l(listing.get("data")) if isinstance(r, dict)]
         if not rows:
             sys.exit("error: no runtime scan results matched. "
                      "Try --result-id or adjust --filter.")
-        result_id = rows[0].get("resultId") or rows[0].get("id")
-        print(f"info: using API prefix {prefix}; result {result_id} "
-              f"({rows[0].get('mainAssetName') or rows[0].get('resourceName') or ''})",
-              file=sys.stderr)
-        return get(f"{prefix}/results/{result_id}")
+        results = []
+        for row in rows:
+            rid = _s(row.get("resultId")) or _s(row.get("id"))
+            name = _s(row.get("mainAssetName")) or _s(row.get("resourceName"))
+            print(f"info: fetching {rid} ({name})", file=sys.stderr)
+            results.append(get(f"{prefix}/results/{rid}"))
+        return results
 
     for p in prefixes:
         try:
-            return get(f"{p}/results/{result_id}")
+            return [get(f"{p}/results/{result_id}")]
         except urllib.error.HTTPError as e:
             last_err = f"{p}/results/{result_id} -> HTTP {e.code}"
             if e.code != 404:
@@ -704,6 +761,8 @@ def detect_input_format(raw: str):
             return "trivy"
         if "Results" in data:
             return "trivy"
+        if "matches" in data:
+            return "grype"
         if "packages" in data.get("result", data):
             return "sysdig-json"
         return "trivy"
@@ -1001,7 +1060,8 @@ def main():
     ap.add_argument("--format", choices=["markdown", "shell", "json"], default="markdown")
     ap.add_argument("--min-severity", default="UNKNOWN",
                     choices=["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"])
-    ap.add_argument("--input", choices=["auto", "trivy", "sysdig-csv", "sysdig-json"],
+    ap.add_argument("--input",
+                    choices=["auto", "trivy", "grype", "sysdig-csv", "sysdig-json"],
                     default="auto", help="Input format (default: auto-detect)")
     ap.add_argument("--os", dest="os_override", default=None, metavar="FAMILY:VERSION",
                     help="OS override for inputs lacking OS metadata, "
@@ -1013,6 +1073,9 @@ def main():
                     help="Sysdig API base URL, e.g. https://app.us2.sysdig.com")
     ap.add_argument("--result-id", default=None,
                     help="Specific scan result ID (default: latest runtime result)")
+    ap.add_argument("--limit", type=int, default=1, metavar="N",
+                    help="With --from-sysdig: process the N most recent runtime "
+                         "results in one report (default: 1)")
     ap.add_argument("--filter", dest="filter_expr", default=None,
                     help="Sysdig runtime-results filter expression")
     ap.add_argument("--insecure", action="store_true",
@@ -1030,13 +1093,15 @@ def main():
         if not args.api_url or not token:
             sys.exit("error: --from-sysdig requires --api-url and the "
                      "SYSDIG_API_TOKEN environment variable.")
-        data = fetch_sysdig(args.api_url, token, args.result_id, args.filter_expr,
-                            insecure=args.insecure, ca_bundle=args.ca_bundle)
+        data_list = fetch_sysdig(args.api_url, token, args.result_id, args.filter_expr,
+                                 insecure=args.insecure, ca_bundle=args.ca_bundle,
+                                 limit=args.limit)
         if args.dump:
             with open(args.dump, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data_list[0] if len(data_list) == 1 else data_list, f, indent=2)
             print(f"info: raw API response saved to {args.dump}", file=sys.stderr)
-        parsed = parse_sysdig_json(data, os_override=args.os_override)
+        parsed_list = [parse_sysdig_json(d, os_override=args.os_override)
+                       for d in data_list]
     else:
         if not args.scan:
             sys.exit("error: provide a scan file (or '-' for stdin), "
@@ -1050,7 +1115,7 @@ def main():
             sys.exit(f"error: '{args.scan}' is empty.")
         input_format = args.input if args.input != "auto" else detect_input_format(raw)
 
-        if input_format in ("trivy", "sysdig-json"):
+        if input_format in ("trivy", "grype", "sysdig-json"):
             try:
                 data = json.loads(raw)
             except ValueError as e:
@@ -1061,20 +1126,37 @@ def main():
             parsed = parse_trivy(data)
             if args.os_override:
                 parsed["family"], parsed["os_name"] = parse_os_string(args.os_override)
+        elif input_format == "grype":
+            parsed = parse_grype(data)
+            if args.os_override:
+                parsed["family"], parsed["os_name"] = parse_os_string(args.os_override)
         elif input_format == "sysdig-json":
             parsed = parse_sysdig_json(data, os_override=args.os_override)
         else:
             parsed = parse_sysdig_csv(raw, os_override=args.os_override)
+        parsed_list = [parsed]
 
-    if not parsed["family"] and (parsed["findings"] or parsed["unfixed"]):
-        print("warning: no OS information found in input; pass --os "
-              "(e.g. --os ubuntu:22.04) to generate OS package commands.",
-              file=sys.stderr)
+    for parsed in parsed_list:
+        if not parsed["family"] and (parsed["findings"] or parsed["unfixed"]):
+            print(f"warning: no OS information for '{parsed['target']}'; pass --os "
+                  "(e.g. --os ubuntu:22.04) to generate OS package commands.",
+                  file=sys.stderr)
 
-    plan = build_plan(parsed, args.min_severity)
+    plans = [build_plan(p, args.min_severity) for p in parsed_list]
 
-    renderer = {"markdown": render_markdown, "shell": render_shell, "json": render_json}
-    print(renderer[args.format](plan))
+    if args.format == "json":
+        print(render_json(plans[0]) if len(plans) == 1
+              else json.dumps(plans, indent=2, ensure_ascii=False))
+    elif args.format == "shell":
+        parts = [render_shell(plans[0])]
+        for plan in plans[1:]:
+            body = render_shell(plan)
+            body = "\n".join(l for l in body.splitlines()
+                             if not l.startswith("#!") and l != "set -euo pipefail")
+            parts.append(f"# {'=' * 60}\n{body}")
+        print("\n\n".join(parts))
+    else:
+        print("\n\n---\n\n".join(render_markdown(plan) for plan in plans))
 
 
 if __name__ == "__main__":

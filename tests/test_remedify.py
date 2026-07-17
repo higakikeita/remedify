@@ -499,6 +499,40 @@ class TestParserNullSafety(unittest.TestCase):
         self.assertEqual(remedify._sysdig_severity([]), "UNKNOWN")
 
 
+class TestGrype(unittest.TestCase):
+    """v0.6: Grype JSON (`grype <target> -o json`)."""
+
+    def setUp(self):
+        self.plan = remedify.build_plan(remedify.parse_grype(load("grype-ubuntu.json")))
+
+    def test_distro_and_target(self):
+        self.assertEqual(self.plan["target"], "myapp:1.0")
+        self.assertEqual(self.plan["pkg_manager"], "apt")
+
+    def test_deb_package_command(self):
+        step = next(s for s in self.plan["steps"] if "libssl3" in s["packages"])
+        self.assertEqual(step["command"],
+                         "apt-get install --only-upgrade libssl3=3.0.2-0ubuntu1.18")
+        self.assertEqual(step["backport"], "Ubuntu")
+
+    def test_wont_fix_goes_to_unfixed_with_status(self):
+        u = next(x for x in self.plan["unfixed"] if x["package"] == "bash")
+        self.assertEqual(u["status"], "wont_fix")
+
+    def test_npm_becomes_app_step(self):
+        step = next(s for s in self.plan["app_steps"] if s["package"] == "lodash")
+        self.assertEqual(step["ecosystem"], "npm")
+        self.assertIn("npm install lodash@4.17.21", step["action"])
+
+    def test_autodetect(self):
+        with open(os.path.join(EXAMPLES, "grype-ubuntu.json"), encoding="utf-8") as f:
+            self.assertEqual(remedify.detect_input_format(f.read()), "grype")
+
+    def test_advisory_surfaced(self):
+        md = remedify.render_markdown(self.plan)
+        self.assertIn("USN-6986-1", md)
+
+
 class TestRenderers(unittest.TestCase):
     def setUp(self):
         self.plan = remedify.build_plan(

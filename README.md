@@ -9,7 +9,7 @@
 
 Vulnerability scanners are great at telling you *what* is vulnerable and *which version* fixes it. They are terrible at telling you *what command to run*. After triage, every team asks the same question: "So how exactly do I fix this on my OS?" — and the answer today is "go read the Ubuntu/RHEL/Amazon Linux docs."
 
-**remedify** closes that last-mile gap. It takes vulnerability scan results (Trivy today; Grype and Sysdig on the roadmap) and generates concrete, distro-aware remediation:
+**remedify** closes that last-mile gap. It takes vulnerability scan results (Trivy, Grype, or Sysdig — API, JSON, and CSV) and generates concrete, distro-aware remediation:
 
 ```
 $ trivy rootfs --format json -o scan.json /
@@ -29,6 +29,32 @@ $ remedify scan.json
 - Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6986-1)
 ```
 
+## Quick start
+
+```bash
+git clone https://github.com/higakikeita/remedify && cd remedify
+# optional: pip install .   → installs the `remedify` command
+
+# 1. From Trivy
+trivy image --format json -o scan.json nginx:latest
+python3 remedify.py scan.json                             # Markdown report
+python3 remedify.py scan.json --format shell > fix.sh     # reviewable fix script
+python3 remedify.py scan.json --min-severity HIGH --format json   # for CI/automation
+
+# 2. Straight from the Sysdig VM API (needs a Secure API token)
+export SYSDIG_API_TOKEN=<token>
+python3 remedify.py --from-sysdig --api-url https://us2.app.sysdig.com
+python3 remedify.py --from-sysdig --api-url ... --limit 20   # 20 workloads, one report
+
+# 2b. From Grype
+grype myapp:1.0 -o json | python3 remedify.py -
+
+# 3. From a Sysdig vulnerability report CSV export
+python3 remedify.py report.csv --os ubuntu:22.04
+```
+
+No dependencies — any Python 3.9+ runs it as-is.
+
 ## How does this relate to copa and Sysdig Sage?
 
 Honest answer: they overlap, and each occupies a different spot.
@@ -47,9 +73,9 @@ Honest answer: they overlap, and each occupies a different spot.
 
 Position: containers with a registry workflow → copa; interactive triage inside Sysdig → Sage; **hosts, automation pipelines, and scanner-agnostic remediation plans → remedify**.
 
-## Features (v0.2)
+## Features
 
-- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://us2.app.sysdig.com` with `SYSDIG_API_TOKEN`; validated against a live tenant)
+- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Grype JSON**, **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://us2.app.sysdig.com` with `SYSDIG_API_TOKEN`; validated against a live tenant)
 - **Priority signals**: findings carry Sysdig runtime context — 🚨 CISA KEV (known exploited), public exploit available, and **package in use at runtime** — and steps are sorted by severity + these signals, so you fix what attackers can actually reach first
 - **Application dependencies (lang-pkgs)**: Java/npm/pip/Go/Ruby/PHP/Rust/.NET findings get ecosystem-specific fix instructions (update pom.xml / `npm install pkg@ver` / etc. + rebuild) — the class of finding neither OS package managers nor copa can fix
 - **Distro-aware commands**: apt (Ubuntu/Debian), dnf/yum (RHEL/Rocky/Alma/Amazon/Fedora), apk (Alpine), zypper (SUSE)
@@ -110,9 +136,10 @@ apt-get install --only-upgrade e2fsprogs=1.44.1-1ubuntu1.2 ...
 |---|---|---|---|
 | `--format` | `markdown` `shell` `json` | `markdown` | Output format |
 | `--min-severity` | `LOW` `MEDIUM` `HIGH` `CRITICAL` | show all | Filter remediation steps (unfixed findings are **never** hidden) |
-| `--input` | `auto` `trivy` `sysdig-csv` `sysdig-json` | `auto` | Input format |
+| `--input` | `auto` `trivy` `grype` `sysdig-csv` `sysdig-json` | `auto` | Input format |
 | `--os` | e.g. `ubuntu:22.04` | from input | OS override for inputs lacking OS metadata |
-| `--from-sysdig` | | | Fetch latest runtime result from Sysdig VM API (beta) |
+| `--from-sysdig` | | | Fetch runtime results from Sysdig VM API |
+| `--limit` | N | 1 | With `--from-sysdig`: N most recent workloads in one report |
 | `--api-url` / `--result-id` / `--filter` | | | Sysdig API endpoint / specific result / filter |
 | `--version` | | | Print version |
 

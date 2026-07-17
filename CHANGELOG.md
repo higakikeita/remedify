@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- **Grype JSON parser** (`grype <target> -o json`, auto-detected) — remedify
+  now speaks Trivy, Grype, and Sysdig (API/JSON/CSV)
+- **Multi-workload mode**: `--from-sysdig --limit N` fetches the N most
+  recent runtime results and emits one combined report (markdown sections,
+  merged shell script, JSON array)
+
 ## 0.5.2
 
 - **Real-OS validation**: generated apt commands verified against a live

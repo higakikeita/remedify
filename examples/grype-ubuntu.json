@@ -1,0 +1,67 @@
+{
+  "matches": [
+    {
+      "vulnerability": {
+        "id": "CVE-2024-6119",
+        "severity": "High",
+        "fix": { "versions": ["3.0.2-0ubuntu1.18"], "state": "fixed" },
+        "urls": [
+          "https://ubuntu.com/security/notices/USN-6986-1",
+          "https://nvd.nist.gov/vuln/detail/CVE-2024-6119"
+        ]
+      },
+      "artifact": {
+        "name": "libssl3",
+        "version": "3.0.2-0ubuntu1.15",
+        "type": "deb",
+        "locations": [{ "path": "/usr/lib/x86_64-linux-gnu/libssl.so.3" }]
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2024-33599",
+        "severity": "Critical",
+        "fix": { "versions": ["2.35-0ubuntu3.8"], "state": "fixed" },
+        "urls": ["https://ubuntu.com/security/notices/USN-6762-1"]
+      },
+      "artifact": {
+        "name": "libc6",
+        "version": "2.35-0ubuntu3.6",
+        "type": "deb",
+        "locations": []
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2019-18276",
+        "severity": "Low",
+        "fix": { "versions": [], "state": "wont-fix" },
+        "urls": []
+      },
+      "artifact": {
+        "name": "bash",
+        "version": "5.1-6ubuntu1",
+        "type": "deb"
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2021-23337",
+        "severity": "High",
+        "fix": { "versions": ["4.17.21"], "state": "fixed" },
+        "urls": ["https://nvd.nist.gov/vuln/detail/CVE-2021-23337"]
+      },
+      "artifact": {
+        "name": "lodash",
+        "version": "4.17.20",
+        "type": "npm",
+        "locations": [{ "path": "/app/node_modules/lodash/package.json" }]
+      }
+    }
+  ],
+  "source": {
+    "target": { "userInput": "myapp:1.0" }
+  },
+  "distro": { "name": "ubuntu", "version": "22.04" },
+  "descriptor": { "name": "grype", "version": "0.79.0" }
+}
