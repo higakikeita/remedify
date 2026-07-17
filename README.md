@@ -40,7 +40,8 @@ They are complementary: containers → copa, everything else → remedify.
 
 ## Features (v0.2)
 
-- **Input**: Trivy JSON (`trivy image|fs|rootfs --format json`)
+- **Inputs** (auto-detected): Trivy JSON (`trivy image|fs|rootfs --format json`), **Sysdig scan-result JSON** (sysdig-cli-scanner / VM API), **Sysdig vulnerability report CSV exports** (header names matched flexibly — pass `--os ubuntu:22.04` if your export lacks an OS column), or **live from the Sysdig VM API** (`--from-sysdig --api-url https://app.us2.sysdig.com` with `SYSDIG_API_TOKEN`; beta)
+- **Application dependencies (lang-pkgs)**: Java/npm/pip/Go/Ruby/PHP/Rust/.NET findings get ecosystem-specific fix instructions (update pom.xml / `npm install pkg@ver` / etc. + rebuild) — the class of finding neither OS package managers nor copa can fix
 - **Distro-aware commands**: apt (Ubuntu/Debian), dnf/yum (RHEL/Rocky/Alma/Amazon/Fedora), apk (Alpine), zypper (SUSE)
 - **Consolidated steps**: binary packages from one source package (e.g. e2fsprogs + libcom-err2 + libext2fs2 + libss2) become **one** command, not four
 - **"No fix available" section**: findings without a fixed version are reported with their vendor status (`affected`, `will_not_fix`, `end_of_life`) — never silently dropped
@@ -99,6 +100,10 @@ apt-get install --only-upgrade e2fsprogs=1.44.1-1ubuntu1.2 ...
 |---|---|---|---|
 | `--format` | `markdown` `shell` `json` | `markdown` | Output format |
 | `--min-severity` | `LOW` `MEDIUM` `HIGH` `CRITICAL` | show all | Filter remediation steps (unfixed findings are **never** hidden) |
+| `--input` | `auto` `trivy` `sysdig-csv` `sysdig-json` | `auto` | Input format |
+| `--os` | e.g. `ubuntu:22.04` | from input | OS override for inputs lacking OS metadata |
+| `--from-sysdig` | | | Fetch latest runtime result from Sysdig VM API (beta) |
+| `--api-url` / `--result-id` / `--filter` | | | Sysdig API endpoint / specific result / filter |
 | `--version` | | | Print version |
 
 Input via file path or stdin (`-`).
@@ -123,6 +128,8 @@ python3 remedify.py examples/trivy-rhel.json --min-severity HIGH
 python3 remedify.py examples/trivy-amazon2.json           # yum + ALAS advisories
 python3 remedify.py examples/trivy-alpine.json            # apk
 python3 remedify.py examples/trivy-centos7-eol.json       # EOL + will_not_fix / end_of_life
+python3 remedify.py examples/sysdig-report.csv           # Sysdig CSV export
+python3 remedify.py examples/sysdig-scan-result.json     # Sysdig scan JSON: OS + Java/npm (Spring4Shell)
 python3 remedify.py examples/trivy-ubuntu.json --format shell > fix.sh
 ```
 

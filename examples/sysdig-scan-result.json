@@ -1,0 +1,77 @@
+{
+  "result": {
+    "type": "dockerImage",
+    "metadata": {
+      "pullString": "sock-shop/orders:latest",
+      "baseOs": "debian 11.6",
+      "imageId": "sha256:deadbeef"
+    },
+    "packages": [
+      {
+        "type": "java",
+        "name": "org.springframework:spring-beans",
+        "version": "5.3.15",
+        "path": "/usr/src/app/app.jar:BOOT-INF/lib/spring-beans-5.3.15.jar",
+        "suggestedFix": "5.3.18",
+        "vulns": [
+          {
+            "name": "CVE-2022-22965",
+            "severity": { "value": "Critical" },
+            "fixedInVersion": "5.3.18",
+            "exploitable": true
+          }
+        ]
+      },
+      {
+        "type": "java",
+        "name": "org.springframework.boot:spring-boot",
+        "version": "2.6.3",
+        "path": "/usr/src/app/app.jar:BOOT-INF/lib/spring-boot-2.6.3.jar",
+        "suggestedFix": "2.6.6",
+        "vulns": [
+          {
+            "name": "CVE-2022-22965",
+            "severity": { "value": "Critical" },
+            "fixedInVersion": "2.6.6"
+          }
+        ]
+      },
+      {
+        "type": "javascript",
+        "name": "lodash",
+        "version": "4.17.20",
+        "path": "/usr/src/app/node_modules/lodash/package.json",
+        "vulns": [
+          {
+            "name": "CVE-2021-23337",
+            "severity": { "value": "High" },
+            "fixedInVersion": "4.17.21"
+          }
+        ]
+      },
+      {
+        "type": "os",
+        "name": "libssl1.1",
+        "version": "1.1.1n-0+deb11u4",
+        "vulns": [
+          {
+            "name": "CVE-2023-0286",
+            "severity": { "value": "High" },
+            "fixedInVersion": "1.1.1n-0+deb11u5"
+          }
+        ]
+      },
+      {
+        "type": "os",
+        "name": "bash",
+        "version": "5.1-2+deb11u1",
+        "vulns": [
+          {
+            "name": "CVE-2022-3715",
+            "severity": { "value": "Low" }
+          }
+        ]
+      }
+    ]
+  }
+}

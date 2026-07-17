@@ -26,3 +26,7 @@ jobs:
             python remedify.py "$f" --format shell > /dev/null
             python remedify.py "$f" --format json | python -m json.tool > /dev/null
           done
+          python remedify.py examples/sysdig-report.csv
+          python remedify.py examples/sysdig-report.csv --format json | python -m json.tool > /dev/null
+          python remedify.py examples/sysdig-scan-result.json
+          python remedify.py examples/sysdig-scan-result.json --format shell > /dev/null

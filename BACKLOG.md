@@ -7,15 +7,38 @@
 - ✅ EOL / ESM awareness (static table; see v0.3 below)
 - ✅ Advisory family dedup (USN-4142-1/-2 → one entry)
 
-## v0.3 candidates
+## Done in v0.3
 
+- ✅ Test expansion: Alpine (apk), Amazon Linux 2 (yum + ALAS), CentOS 7 EOL,
+  `will_not_fix` / `end_of_life` statuses, edge cases (39 tests)
+- ✅ Sysdig vulnerability report CSV parser (alias-based header matching,
+  `--os` override, auto-detection)
+
+**Note on the Sysdig parser**: column aliases are based on common report
+template headers. Validate against a real (anonymized) customer export and
+extend `SYSDIG_COLUMN_ALIASES` if headers differ — that is the only place
+that needs changing.
+
+## Done in v0.4
+
+- ✅ lang-pkgs support: Java/npm/pip/Go/Ruby/PHP/Rust/.NET findings become
+  "Application dependencies (rebuild required)" steps with per-ecosystem
+  fix instructions (Trivy lang-pkgs, Sysdig CSV lang types, Sysdig JSON)
+- ✅ Sysdig scan-result JSON parser (sysdig-cli-scanner / VM API shape)
+- ✅ `--from-sysdig` API fetch mode (beta — endpoint paths follow the public
+  VM API v1; **needs validation against a real tenant**)
+
+## v0.5 candidates
+
+- **Validate `--from-sysdig` against a real tenant** (top priority; the
+  parser seam is `parse_sysdig_json` — adjust there if the schema differs)
+- Validate Sysdig CSV parser against real customer exports
 - EOL data from [endoflife.date](https://endoflife.date) API instead of static table
 - Grype JSON parser
-- Sysdig vulnerability report parser
 - Source-package grouping via PURL metadata (current heuristic: identical
   installed+fixed version pair)
-- `will_not_fix` / `end_of_life` statuses: real-data test fixtures
 - Windows (KB / winget)
+- MCP server so AI agents can call remedify directly
 
 ---
 

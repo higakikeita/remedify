@@ -1,0 +1,8 @@
+Vulnerability ID,Severity,Package name,Package version,Fix version,Package type,Image,Image OS
+CVE-2024-6119,High,libssl3,3.0.2-0ubuntu1.15,3.0.2-0ubuntu1.18,os,prod-api:v2.3.1,Ubuntu 22.04
+CVE-2024-5535,Medium,libssl3,3.0.2-0ubuntu1.15,3.0.2-0ubuntu1.17,os,prod-api:v2.3.1,Ubuntu 22.04
+CVE-2024-33599,Critical,libc6,2.35-0ubuntu3.6,2.35-0ubuntu3.8,os,prod-api:v2.3.1,Ubuntu 22.04
+CVE-2024-33600,Critical,libc-bin,2.35-0ubuntu3.6,2.35-0ubuntu3.8,os,prod-api:v2.3.1,Ubuntu 22.04
+CVE-2024-2398,Medium,curl,7.81.0-1ubuntu1.15,7.81.0-1ubuntu1.16,os,prod-api:v2.3.1,Ubuntu 22.04
+CVE-2019-18276,Low,bash,5.1-6ubuntu1,,os,prod-api:v2.3.1,Ubuntu 22.04
+CVE-2024-9999,High,lodash,4.17.20,4.17.21,javascript,prod-api:v2.3.1,Ubuntu 22.04
