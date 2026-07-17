@@ -40,7 +40,7 @@ class TestPlan(unittest.TestCase):
     def test_dnf_command(self):
         plan = remedify.build_plan(remedify.parse_trivy(load("trivy-rhel.json")))
         item = next(i for i in plan["items"] if i["package"] == "glibc")
-        self.assertTrue(item["command"].startswith("dnf update -y glibc-"))
+        self.assertTrue(item["command"].startswith("dnf update glibc-"))
         self.assertEqual(item["backport"], "RHEL")
 
     def test_min_severity_filter(self):
@@ -109,13 +109,13 @@ class TestDistroCoverage(unittest.TestCase):
         step = plan["steps"][0]
         # libcrypto3 + libssl3 share installed/fixed versions -> one step
         self.assertEqual(sorted(step["packages"]), ["libcrypto3", "libssl3"])
-        self.assertEqual(step["command"], "apk upgrade libcrypto3 libssl3")
+        self.assertEqual(step["command"], "apk add libcrypto3=3.1.5-r0 libssl3=3.1.5-r0")  # pinned = deterministic execution
 
     def test_amazon_linux_2_uses_yum(self):
         plan = remedify.build_plan(remedify.parse_trivy(load("trivy-amazon2.json")))
         self.assertEqual(plan["pkg_manager"], "yum")
         kernel = next(s for s in plan["steps"] if "kernel" in s["packages"])
-        self.assertTrue(kernel["command"].startswith("yum update -y kernel-"))
+        self.assertTrue(kernel["command"].startswith("yum update kernel-"))  # -y only in shell/CI output
         self.assertEqual(kernel["backport"], "Amazon Linux")
         self.assertTrue(any("reboot" in h.lower() for h in kernel["hints"]))
 
@@ -344,7 +344,7 @@ class TestSysdigApiV1(unittest.TestCase):
 
     def test_vulnerabilities_refs_resolved(self):
         step = next(s for s in self.plan["steps"] if "c-ares" in s["packages"])
-        self.assertTrue(step["command"].startswith("apk upgrade"))
+        self.assertTrue(step["command"].startswith("apk add "))
         self.assertTrue(step["cves"])
 
     def test_in_use_flag_from_isrunning(self):
@@ -607,6 +607,93 @@ class TestFleetSummary(unittest.TestCase):
         summary = remedify.build_fleet_summary([p1, p2])
         lodash = next(e for e in summary["top_fixes"] if "lodash" in e["label"])
         self.assertEqual(len(lodash["targets"]), 2)  # same npm fix in both
+
+
+class TestAnsibleRenderer(unittest.TestCase):
+    """v0.9: --format ansible emits a valid, guarded playbook."""
+
+    def setUp(self):
+        self.play = remedify.render_ansible(
+            remedify.build_plan(remedify.parse_trivy(load("trivy-ubuntu.json"))))
+
+    def test_apt_module_with_pinned_versions(self):
+        self.assertIn("ansible.builtin.apt:", self.play)
+        self.assertIn('"libssl3=3.0.2-0ubuntu1.18"', self.play)
+        self.assertIn("state: present", self.play)
+
+    def test_reboot_guarded_by_variable(self):
+        self.assertIn("ansible.builtin.reboot:", self.play)
+        self.assertIn("when: allow_reboot | bool", self.play)
+        self.assertIn("allow_reboot: false", self.play)
+
+    def test_unfixed_surfaced_as_comment(self):
+        self.assertIn("# NO FIX AVAILABLE: vim", self.play)
+
+    def test_dnf_and_apk_modules(self):
+        rhel = remedify.render_ansible(
+            remedify.build_plan(remedify.parse_trivy(load("trivy-rhel.json"))))
+        self.assertIn("ansible.builtin.dnf:", rhel)
+        alpine = remedify.render_ansible(
+            remedify.build_plan(remedify.parse_trivy(load("trivy-alpine.json"))))
+        self.assertIn("community.general.apk:", alpine)
+        self.assertIn("state: latest", alpine)
+
+    def test_valid_yaml_if_pyyaml_available(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed")
+        doc = yaml.safe_load("---\n" + self.play)
+        self.assertEqual(doc[0]["hosts"], "{{ target_hosts | default('all') }}")
+        self.assertTrue(doc[0]["become"])
+        self.assertGreater(len(doc[0]["tasks"]), 3)
+
+
+class TestReviewFixes(unittest.TestCase):
+    """v0.9: fixes from external code review."""
+
+    def test_shell_is_noninteractive(self):
+        # (2) scripts must never hang on a prompt in cron/CI
+        plan = remedify.build_plan(remedify.parse_trivy(load("trivy-ubuntu.json")))
+        sh = remedify.render_shell(plan)
+        self.assertIn("export DEBIAN_FRONTEND=noninteractive", sh)
+        self.assertIn("apt-get install -y --only-upgrade", sh)
+
+    def test_markdown_stays_interactive(self):
+        plan = remedify.build_plan(remedify.parse_trivy(load("trivy-ubuntu.json")))
+        md = remedify.render_markdown(plan)
+        self.assertNotIn("apt-get install -y", md)
+
+    def test_apk_pins_versions(self):
+        # (3) deterministic execution, not just deterministic text
+        self.assertEqual(
+            remedify.fix_command("apk", ["libssl3"], "3.1.5-r0"),
+            "apk add libssl3=3.1.5-r0")
+        self.assertEqual(
+            remedify.fix_command("zypper", ["openssl"], "1.1.1", assume_yes=True),
+            "zypper --non-interactive install openssl=1.1.1")
+
+    def test_amazon_linux_2_is_eol(self):
+        # (4) AL2 went EOL 2026-06-30
+        self.assertIsNotNone(remedify.detect_eol("amazon", "2"))
+
+    def test_wolfi_chainguard_use_apk(self):
+        # (5)
+        self.assertEqual(remedify.detect_pkg_manager("wolfi", "1"), "apk")
+        self.assertEqual(remedify.detect_pkg_manager("chainguard", ""), "apk")
+
+    def test_fail_on_exit_codes(self):
+        # (7) CI gate
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), "..", "remedify.py")
+        r = subprocess.run([sys.executable, script,
+                            os.path.join(EXAMPLES, "trivy-ubuntu.json"),
+                            "--fail-on", "CRITICAL"], capture_output=True)
+        self.assertEqual(r.returncode, 2)   # libc6 CRITICAL present
+        r = subprocess.run([sys.executable, script,
+                            os.path.join(EXAMPLES, "trivy-rhel.json"),
+                            "--fail-on", "CRITICAL"], capture_output=True)
+        self.assertEqual(r.returncode, 0)   # max is HIGH
 
 
 class TestRenderers(unittest.TestCase):

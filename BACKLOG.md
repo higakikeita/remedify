@@ -40,6 +40,13 @@ that needs changing.
 - ✅ Ops hardening: `--insecure` / `--ca-bundle` (corporate TLS interception),
   `--dump` (raw response debugging), full-width-space-tolerant token handling
 
+## From external code review (open)
+
+- `--context host|image`: for first-party container images, recommend
+  "bump base image + rebuild" as primary (immutable infra) instead of
+  in-place commands
+- distroless images: third branch — no package manager, base-image update only
+
 ## v0.6 candidates
 
 - Use `endOfLifeDate` from the API for per-package EOL warnings

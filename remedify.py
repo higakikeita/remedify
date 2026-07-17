@@ -28,7 +28,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -39,7 +39,7 @@ SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 APT_FAMILIES = {"debian", "ubuntu"}
 DNF_FAMILIES = {"redhat", "rhel", "centos", "rocky", "almalinux", "alma",
                 "oracle", "fedora", "amazon"}
-APK_FAMILIES = {"alpine"}
+APK_FAMILIES = {"alpine", "wolfi", "chainguard"}
 ZYPPER_FAMILIES = {"suse", "opensuse", "sles", "opensuse-leap", "opensuse-tumbleweed"}
 
 # Vendor backport markers embedded in package versions
@@ -96,8 +96,9 @@ EOL_VERSIONS = {
                  "(Rocky/Alma/RHEL/CentOS Stream)."),
     },
     "amazon": {
-        "versions": {"1", "2018.03"},
-        "note": "Amazon Linux {v} is end-of-life. Migrate to AL2023.",
+        "versions": {"1", "2", "2018.03"},
+        "note": ("Amazon Linux {v} is end-of-life (AL2 since 2026-06-30). "
+                 "Migrate to AL2023."),
     },
 }
 
@@ -230,20 +231,28 @@ def detect_pkg_manager(family: str, os_name: str):
     return None
 
 
-def fix_command(pkg_manager: str, packages, version: str):
-    """Consolidated command for one or more packages sharing a fixed version."""
+def fix_command(pkg_manager: str, packages, version: str, assume_yes: bool = False):
+    """Consolidated command for one or more packages sharing a fixed version.
+
+    All package managers pin the target version (deterministic execution,
+    not just deterministic text). assume_yes is for scripts (shell/CI);
+    interactive report forms stay confirmable."""
     if isinstance(packages, str):
         packages = [packages]
+    y = "-y " if assume_yes else ""
     if pkg_manager == "apt":
         specs = " ".join(f"{p}={version}" for p in packages)
-        return f"apt-get install --only-upgrade {specs}"
+        return f"apt-get install {y}--only-upgrade {specs}"
     if pkg_manager in ("dnf", "yum"):
         specs = " ".join(f"{p}-{version}" for p in packages)
-        return f"{pkg_manager} update -y {specs}"
+        return f"{pkg_manager} update {y}{specs}".replace("  ", " ")
     if pkg_manager == "apk":
-        return "apk upgrade " + " ".join(packages)
+        specs = " ".join(f"{p}={version}" for p in packages)
+        return f"apk add {specs}"
     if pkg_manager == "zypper":
-        return "zypper update -y " + " ".join(packages)
+        ni = "--non-interactive " if assume_yes else ""
+        specs = " ".join(f"{p}={version}" for p in packages)
+        return f"zypper {ni}install {specs}"
     return None
 
 
@@ -314,37 +323,76 @@ def post_update_hints(package: str):
 # Version comparison (loose; PoC-grade)
 # ---------------------------------------------------------------------------
 
-def _version_key(v: str):
-    """Tokenize a version for comparison. dpkg/rpm-flavoured:
-    epoch handled naturally (leading digits), '~' sorts BEFORE anything
-    (1.0~rc1 < 1.0), digits sort above alphabetic tokens."""
-    key = []
-    for chunk in re.split(r"(~)", v or ""):
-        if chunk == "~":
-            key.append((-1, 0, ""))
-            continue
-        for p in re.split(r"[^0-9a-zA-Z]+", chunk):
-            if not p:
-                continue
-            if p.isdigit():
-                key.append((1, int(p), ""))
-            else:
-                key.append((0, 0, p))
-    return key
+_EPOCH_RE = re.compile(r"^(\d+):(.*)$")
 
 
-_PAD = (0, 0, "")
+def _split_epoch(v: str):
+    """'1:2.3.4' -> (1, '2.3.4'); no epoch -> (0, v). dpkg compares epoch first."""
+    m = _EPOCH_RE.match(_s(v))
+    if m:
+        return int(m.group(1)), m.group(2)
+    return 0, _s(v)
+
+
+def _dpkg_order(c: str):
+    """dpkg character order: '~' before everything (even end-of-string),
+    then letters, then non-letters by codepoint."""
+    if c == "~":
+        return -1
+    if c.isalpha():
+        return ord(c)
+    return ord(c) + 256
+
+
+def _verrevcmp(a: str, b: str):
+    """Faithful port of dpkg's verrevcmp(): alternate comparing non-digit
+    runs (via _dpkg_order) and digit runs (numerically)."""
+    ia = ib = 0
+    la, lb = len(a), len(b)
+    while ia < la or ib < lb:
+        while ((ia < la and not a[ia].isdigit()) or
+               (ib < lb and not b[ib].isdigit())):
+            ca = _dpkg_order(a[ia]) if ia < la and not a[ia].isdigit() else 0
+            cb = _dpkg_order(b[ib]) if ib < lb and not b[ib].isdigit() else 0
+            if ca != cb:
+                return -1 if ca < cb else 1
+            ia += 1
+            ib += 1
+        na = 0
+        while ia < la and a[ia].isdigit():
+            na = na * 10 + int(a[ia])
+            ia += 1
+        nb = 0
+        while ib < lb and b[ib].isdigit():
+            nb = nb * 10 + int(b[ib])
+            ib += 1
+        if na != nb:
+            return -1 if na < nb else 1
+    return 0
+
+
+def _split_revision(v: str):
+    """dpkg splits upstream/revision at the LAST '-'; missing revision = '0'."""
+    if "-" in v:
+        upstream, _, revision = v.rpartition("-")
+        return upstream, revision
+    return v, "0"
 
 
 def compare_versions(a: str, b: str):
-    """-1 / 0 / 1. Shorter versions are padded so 1.0 < 1.0.1 but 1.0~rc1 < 1.0."""
-    ka, kb = _version_key(a), _version_key(b)
-    for i in range(max(len(ka), len(kb))):
-        ea = ka[i] if i < len(ka) else _PAD
-        eb = kb[i] if i < len(kb) else _PAD
-        if ea != eb:
-            return -1 if ea < eb else 1
-    return 0
+    """-1 / 0 / 1 with dpkg semantics: epoch, then upstream (verrevcmp),
+    then Debian revision (verrevcmp). Tilde sorts before release; digit
+    runs compare numerically."""
+    ea, ra = _split_epoch(a)
+    eb, rb = _split_epoch(b)
+    if ea != eb:
+        return -1 if ea < eb else 1
+    ua, va = _split_revision(ra)
+    ub, vb = _split_revision(rb)
+    c = _verrevcmp(ua, ub)
+    if c != 0:
+        return c
+    return _verrevcmp(va, vb)
 
 
 def highest_version(versions):
@@ -1124,6 +1172,8 @@ def render_shell(plan):
         lines.append(f"# THIRD-PARTY IMAGE (built by {plan['third_party']}): prefer "
                      f"upgrading to the newest vendor tag over patching in place.")
         lines.append("")
+    if plan["pkg_manager"] == "apt":
+        lines.append("export DEBIAN_FRONTEND=noninteractive")
     if plan["preamble"]:
         lines.append(plan["preamble"])
         lines.append("")
@@ -1131,6 +1181,9 @@ def render_shell(plan):
     for step in plan["steps"]:
         if not step["command"]:
             continue
+        step = dict(step, command=fix_command(
+            plan["pkg_manager"], step["packages"], step["fix_version"],
+            assume_yes=True))
         lines.append(f"# {', '.join(step['packages'])} {step['installed']} -> "
                      f"{step['fix_version']} [{step['severity']}] {', '.join(step['cves'])}")
         badges = _priority_badges(step)
@@ -1166,6 +1219,78 @@ def render_json(plan):
     return json.dumps(plan, indent=2, ensure_ascii=False)
 
 
+def _yaml_str(s):
+    """Quote a string for our generated YAML (conservative: always quote)."""
+    return json.dumps(_s(s), ensure_ascii=False)
+
+
+def render_ansible(plan):
+    """Emit an Ansible playbook play for one plan. String-built YAML —
+    structure is fixed, so no YAML library is needed (zero dependencies)."""
+    pm = plan["pkg_manager"]
+    module = {
+        "apt": ("ansible.builtin.apt", "name", lambda s: [f"{p}={s['fix_version']}" for p in s["packages"]]),
+        "dnf": ("ansible.builtin.dnf", "name", lambda s: [f"{p}-{s['fix_version']}" for p in s["packages"]]),
+        "yum": ("ansible.builtin.yum", "name", lambda s: [f"{p}-{s['fix_version']}" for p in s["packages"]]),
+        "apk": ("community.general.apk", "name", lambda s: list(s["packages"])),
+        "zypper": ("community.general.zypper", "name", lambda s: list(s["packages"])),
+    }.get(pm)
+
+    L = []
+    L.append(f"# Remediation playbook generated by remedify v{__version__}")
+    L.append(f"# Target: {plan['target']} ({plan['os']})")
+    if plan["eol_warning"]:
+        L.append(f"# EOL WARNING: {plan['eol_warning']}")
+    if plan["third_party"]:
+        L.append(f"# THIRD-PARTY IMAGE: prefer upgrading to the newest vendor tag.")
+    for u in plan["unfixed"]:
+        L.append(f"# NO FIX AVAILABLE: {u['package']} "
+                 f"[{u['severity']}] {', '.join(u['cves'])} — {u['status_label']}")
+    for s in plan["app_steps"]:
+        L.append(f"# APP DEPENDENCY (fix in source + rebuild): {s['package']} "
+                 f"-> {s['fix_version']} ({s['ecosystem']})")
+    L.append(f"- name: {_yaml_str('Remediate ' + plan['target'])}")
+    L.append("  hosts: \"{{ target_hosts | default('all') }}\"")
+    L.append("  become: true")
+    L.append("  vars:")
+    L.append("    allow_reboot: false")
+    L.append("  tasks:")
+
+    if not module:
+        L.append("    - name: \"Unsupported OS family — no package tasks generated\"")
+        L.append("      ansible.builtin.debug:")
+        L.append(f"        msg: {_yaml_str('remedify could not map OS ' + plan['os'])}")
+        return "\n".join(L) + "\n"
+
+    mod_name, key, specs = module
+    needs_reboot = False
+    if pm == "apt":
+        L.append("    - name: \"Refresh package cache\"")
+        L.append(f"      {mod_name}:")
+        L.append("        update_cache: true")
+    for s in plan["steps"]:
+        title = (f"Fix {', '.join(s['packages'])} [{s['severity']}] "
+                 f"({', '.join(s['cves'][:4])}"
+                 f"{' …' if len(s['cves']) > 4 else ''})")
+        L.append(f"    - name: {_yaml_str(title)}")
+        L.append(f"      {mod_name}:")
+        L.append(f"        {key}:")
+        for item in specs(s):
+            L.append(f"          - {_yaml_str(item)}")
+        if pm in ("apt", "dnf", "yum"):
+            L.append("        state: present")
+        else:
+            L.append("        state: latest")
+        if any("reboot" in h.lower() for h in s["hints"]):
+            needs_reboot = True
+    if needs_reboot:
+        L.append("    - name: \"Reboot (kernel/libc updated) — enable with -e allow_reboot=true\"")
+        L.append("      ansible.builtin.reboot:")
+        L.append("        reboot_timeout: 600")
+        L.append("      when: allow_reboot | bool")
+    return "\n".join(L) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -1177,7 +1302,8 @@ def main():
     ap.add_argument("scan", nargs="?", default=None,
                     help="Path to Trivy JSON, Sysdig scan-result JSON, or Sysdig CSV "
                          "export ('-' for stdin). Omit when using --from-sysdig.")
-    ap.add_argument("--format", choices=["markdown", "shell", "json"], default="markdown")
+    ap.add_argument("--format", choices=["markdown", "shell", "json", "ansible"],
+                    default="markdown")
     ap.add_argument("--min-severity", default="UNKNOWN",
                     choices=["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"])
     ap.add_argument("--input",
@@ -1204,6 +1330,10 @@ def main():
                     help="Path to CA bundle (e.g. corporate proxy CA)")
     ap.add_argument("--dump", default=None, metavar="FILE",
                     help="Save the raw API response JSON to FILE (debugging)")
+    ap.add_argument("--fail-on", default=None,
+                    choices=["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                    help="Exit with code 2 if any finding at or above this "
+                         "severity exists (CI gate)")
     ap.add_argument("--version", action="version", version=f"remedify {__version__}")
     args = ap.parse_args()
 
@@ -1288,10 +1418,22 @@ def main():
                              if not l.startswith("#!") and l != "set -euo pipefail")
             parts.append(f"# {'=' * 60}\n{body}")
         print("\n\n".join(parts))
+    elif args.format == "ansible":
+        print("---\n" + "\n".join(render_ansible(plan) for plan in plans), end="")
     else:
         parts = [render_fleet_markdown(fleet)] if fleet else []
         parts.extend(render_markdown(plan) for plan in plans)
         print("\n\n---\n\n".join(parts))
+
+    if args.fail_on:
+        threshold = SEVERITY_ORDER[args.fail_on]
+        worst = 0
+        for plan in plans:
+            for coll in (plan["steps"], plan["app_steps"], plan["unfixed"]):
+                for item in coll:
+                    worst = max(worst, SEVERITY_ORDER.get(item["severity"], 0))
+        if worst >= threshold:
+            sys.exit(2)
 
 
 if __name__ == "__main__":

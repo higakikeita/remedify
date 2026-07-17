@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0
+
+- **`--format ansible`**: multi-distro remediation playbook with pinned
+  versions and an `allow_reboot`-guarded reboot task
+- **Correct dpkg version comparison** (external review finding): faithful
+  verrevcmp port — epoch, upstream/revision split at last '-', dpkg
+  character ordering. Verified against real `dpkg --compare-versions`
+  with a 10,000-case property test (new in CI)
+- **Non-interactive scripts** (review): shell output uses
+  `DEBIAN_FRONTEND=noninteractive` + `-y`; markdown stays confirmable
+- **Pinned versions everywhere** (review): apk/zypper now pin the fix
+  version — deterministic execution, not just deterministic text
+- **`--fail-on SEVERITY`** (review): exit code 2 for CI gates
+- EOL table: Amazon Linux 2 (EOL 2026-06-30); Wolfi/Chainguard -> apk
+
 ## 0.8.0
 
 - **MCP server** (`remedify_mcp.py`): expose remedify to AI agents via the
