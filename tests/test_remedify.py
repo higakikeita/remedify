@@ -87,7 +87,7 @@ class TestConsolidation(unittest.TestCase):
 
     def test_eol_warning_for_ubuntu_1804(self):
         self.assertIsNotNone(self.plan["eol_warning"])
-        self.assertIn("ESM", self.plan["eol_warning"])
+        self.assertIn("end-of-life", self.plan["eol_warning"])
 
     def test_no_eol_warning_for_supported_os(self):
         plan = remedify.build_plan(remedify.parse_trivy(load("trivy-rhel.json")))

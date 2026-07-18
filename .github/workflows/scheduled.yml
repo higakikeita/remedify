@@ -25,23 +25,25 @@ jobs:
       - name: Deep fuzz pass
         run: FUZZ_N=20000 python -m unittest tests.test_fuzz -v
 
-  live-eol-drift:
-    # Verifies the endoflife.date integration still parses the live API shape,
-    # and surfaces distros that have newly reached EOL since we last looked.
+  refresh-eol-snapshot:
+    # Regenerate the vendored EOL snapshot from endoflife.date and open a PR if
+    # it changed. remedify stays offline at runtime; only this job hits the net.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Check live EOL for common distros
-        run: |
-          for os in ubuntu:18.04 ubuntu:22.04 debian:11 debian:12 \
-                    amazon:2 centos:7 alpine:3.19; do
-            fam=${os%%:*}; ver=${os##*:}
-            printf '{"ArtifactName":"x","Metadata":{"OS":{"Family":"%s","Name":"%s"}},"Results":[]}' \
-              "$fam" "$ver" | python remedify.py - --check-eol || true
-          done
+      - name: Refresh eol_data.json
+        run: python scripts/update_eol.py
+      - name: Open PR if the snapshot changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: refresh EOL snapshot from endoflife.date"
+          title: "chore: refresh EOL snapshot"
+          body: "Automated weekly refresh of `eol_data.json` from endoflife.date."
+          branch: auto/eol-refresh
+          add-paths: eol_data.json
 
   scanner-schema-smoke:
     # Pulls a current Trivy golden file and confirms our parser still accepts

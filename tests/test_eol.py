@@ -14,6 +14,31 @@ import remedify  # noqa: E402
 TODAY = datetime.date(2026, 7, 18)
 
 
+class TestVendoredEol(unittest.TestCase):
+    """The offline default reads the vendored eol_data.json snapshot."""
+
+    def test_snapshot_loads_and_flags_past_eol(self):
+        # network must NOT be touched by the offline path
+        orig = remedify._http_get_json
+        remedify._http_get_json = lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("offline path hit the network"))
+        try:
+            self.assertIn("end-of-life", remedify.detect_eol("ubuntu", "18.04", today=TODAY))
+            self.assertIsNone(remedify.detect_eol("ubuntu", "22.04", today=TODAY))
+            self.assertIn("end-of-life", remedify.detect_eol("amazon", "2", today=TODAY))
+        finally:
+            remedify._http_get_json = orig
+
+    def test_snapshot_is_valid_json_with_products(self):
+        import json as _json
+        path = os.path.join(os.path.dirname(__file__), "..", "eol_data.json")
+        with open(path, encoding="utf-8") as f:
+            doc = _json.load(f)
+        self.assertIn("ubuntu", doc["products"])
+        for cyc in doc["products"]["ubuntu"]:
+            self.assertIn("cycle", cyc)
+
+
 class TestEolLive(unittest.TestCase):
     def setUp(self):
         # isolate the cache per test
@@ -79,7 +104,8 @@ class TestEolLive(unittest.TestCase):
                 "Metadata": {"OS": {"Family": "ubuntu", "Name": "18.04"}},
                 "Results": []}
         plan = remedify.build_plan(remedify.parse_trivy(data))
-        self.assertIn("ESM", plan["eol_warning"])  # from static table
+        # ubuntu 18.04 is past EOL in the vendored snapshot → flagged, offline
+        self.assertIn("end-of-life", plan["eol_warning"])
 
 
 if __name__ == "__main__":

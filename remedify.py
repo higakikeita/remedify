@@ -29,7 +29,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.11.1"
+__version__ = "0.11.2"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 
@@ -327,17 +327,12 @@ def detect_backport(version: str):
     return None
 
 
-def detect_eol(family: str, os_name: str):
-    entry = EOL_VERSIONS.get((family or "").lower())
-    if entry and str(os_name).strip() in entry["versions"]:
-        return entry["note"].format(v=os_name)
-    return None
-
-
-# endoflife.date integration (opt-in). The static table above goes stale the
-# moment a distro reaches EOL; this checks live data instead. Network is
-# OPTIONAL — off by default so the zero-dependency / offline promise holds.
-# Any failure falls back to the static table and never raises.
+# EOL detection reads a vendored endoflife.date snapshot (eol_data.json,
+# shipped next to this file). This stays OFFLINE and zero-dependency — the
+# crown jewel "scp one file to an air-gapped host" is preserved — while the
+# data is kept fresh by a weekly CI job that regenerates the snapshot via PR
+# (scripts/update_eol.py). The hardcoded EOL_VERSIONS above is the ultimate
+# fallback if the snapshot is missing. --check-eol adds a live network lookup.
 
 ENDOFLIFE_PRODUCTS = {
     "ubuntu": "ubuntu", "debian": "debian", "alpine": "alpine",
@@ -345,6 +340,75 @@ ENDOFLIFE_PRODUCTS = {
     "amazon": "amazon-linux", "rocky": "rocky-linux", "almalinux": "almalinux",
     "fedora": "fedora", "opensuse": "opensuse", "suse": "sles",
 }
+
+_VENDORED_EOL = None
+
+
+def _vendored_eol_products():
+    global _VENDORED_EOL
+    if _VENDORED_EOL is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "eol_data.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _VENDORED_EOL = _d(json.load(f).get("products"))
+        except (OSError, ValueError):
+            _VENDORED_EOL = {}
+    return _VENDORED_EOL
+
+
+def _eol_note_from_cycles(family, os_name, cycles, today):
+    """Pure matcher. Returns (matched, note): matched=False → caller should fall
+    back; matched=True, note=None → supported (trust this over any fallback)."""
+    import datetime
+    version = _s(os_name).strip().split()[0] if _s(os_name).strip() else ""
+    if not version:
+        return (False, None)
+    for cycle in cycles or []:
+        if not isinstance(cycle, dict):
+            continue
+        cyc = _s(cycle.get("cycle"))
+        if not cyc:
+            continue
+        if version == cyc or version.startswith(cyc + ".") or \
+                cyc == version.split(".")[0]:
+            eol = cycle.get("eol")
+            past = False
+            if eol is True:
+                past = True
+            elif isinstance(eol, str):
+                try:
+                    past = datetime.date.fromisoformat(eol) <= today
+                except ValueError:
+                    past = False
+            if past:
+                when = eol if isinstance(eol, str) else "already"
+                return (True, f"{family} {os_name} is end-of-life "
+                        f"({when}). Standard repositories no longer receive "
+                        f"security updates — plan an OS upgrade.")
+            return (True, None)  # explicitly supported
+    return (False, None)
+
+
+def _detect_eol_static(family: str, os_name: str):
+    entry = EOL_VERSIONS.get((family or "").lower())
+    if entry and str(os_name).strip() in entry["versions"]:
+        return entry["note"].format(v=os_name)
+    return None
+
+
+def detect_eol(family: str, os_name: str, today=None):
+    """Offline EOL check: vendored endoflife.date snapshot first, hardcoded
+    table as fallback. No network."""
+    import datetime
+    today = today or datetime.date.today()
+    product = ENDOFLIFE_PRODUCTS.get(_s(family).lower())
+    if product:
+        cycles = _vendored_eol_products().get(product)
+        matched, note = _eol_note_from_cycles(family, os_name, cycles, today)
+        if matched:
+            return note
+    return _detect_eol_static(family, os_name)
 
 
 def _http_get_json(url, timeout=10):
@@ -394,36 +458,18 @@ def _load_eol_cycles(product, ttl_hours=24):
 
 
 def detect_eol_live(family, os_name, today=None):
-    """EOL note from endoflife.date if the cycle is past EOL, else fall back to
-    the static table. Never raises."""
+    """--check-eol path: query endoflife.date over the network (cached ~24h),
+    else fall back to the offline detect_eol (vendored snapshot + static
+    table). Never raises."""
     import datetime
-    product = ENDOFLIFE_PRODUCTS.get(_s(family).lower())
-    version = _s(os_name).strip().split()[0] if _s(os_name).strip() else ""
-    if not product or not version:
-        return detect_eol(family, os_name)
     today = today or datetime.date.today()
-    for cycle in _load_eol_cycles(product):
-        if not isinstance(cycle, dict):
-            continue
-        cyc = _s(cycle.get("cycle"))
-        if cyc and (version == cyc or version.startswith(cyc + ".") or
-                    cyc == version.split(".")[0]):
-            eol = cycle.get("eol")
-            past = False
-            if eol is True:
-                past = True
-            elif isinstance(eol, str):
-                try:
-                    past = datetime.date.fromisoformat(eol) <= today
-                except ValueError:
-                    past = False
-            if past:
-                when = eol if isinstance(eol, str) else "already"
-                return (f"{family} {os_name} is end-of-life (per endoflife.date: "
-                        f"{when}). Standard repositories no longer receive "
-                        f"security updates — plan an OS upgrade.")
-            return None  # live data says supported → trust it over static table
-    return detect_eol(family, os_name)
+    product = ENDOFLIFE_PRODUCTS.get(_s(family).lower())
+    if product:
+        matched, note = _eol_note_from_cycles(
+            family, os_name, _load_eol_cycles(product), today)
+        if matched:
+            return note
+    return detect_eol(family, os_name, today)
 
 
 def classify_references(refs):

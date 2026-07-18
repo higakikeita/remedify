@@ -1,0 +1,40 @@
+{
+  "_comment": "Vendored end-of-life snapshot. Read at runtime OFFLINE (no network, air-gap safe). Refreshed by scripts/update_eol.py via a weekly CI pull request. Source: https://endoflife.date",
+  "generated": "2026-07-18",
+  "products": {
+    "ubuntu": [
+      {"cycle": "14.04", "eol": "2019-04-25"},
+      {"cycle": "16.04", "eol": "2021-04-30"},
+      {"cycle": "18.04", "eol": "2023-05-31"},
+      {"cycle": "20.04", "eol": "2025-05-31"},
+      {"cycle": "22.04", "eol": "2027-06-01"},
+      {"cycle": "24.04", "eol": "2029-05-31"}
+    ],
+    "debian": [
+      {"cycle": "9", "eol": "2022-06-30"},
+      {"cycle": "10", "eol": "2024-06-30"},
+      {"cycle": "11", "eol": "2026-08-31"},
+      {"cycle": "12", "eol": "2028-06-30"}
+    ],
+    "amazon-linux": [
+      {"cycle": "1", "eol": "2023-12-31"},
+      {"cycle": "2", "eol": "2026-06-30"},
+      {"cycle": "2023", "eol": "2028-03-15"}
+    ],
+    "centos": [
+      {"cycle": "7", "eol": "2024-06-30"},
+      {"cycle": "8", "eol": "2021-12-31"}
+    ],
+    "alpine": [
+      {"cycle": "3.17", "eol": "2024-11-22"},
+      {"cycle": "3.18", "eol": "2025-05-09"},
+      {"cycle": "3.19", "eol": "2025-11-01"},
+      {"cycle": "3.20", "eol": "2026-04-01"}
+    ],
+    "rhel": [
+      {"cycle": "7", "eol": "2024-06-30"},
+      {"cycle": "8", "eol": "2029-05-31"},
+      {"cycle": "9", "eol": "2032-05-31"}
+    ]
+  }
+}

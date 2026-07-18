@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "remedify"
-version = "0.11.1"
+version = "0.11.2"
 description = "Turn vulnerability scan results into concrete, OS-specific remediation commands"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -28,3 +28,5 @@ remedify = "remedify:main"
 
 [tool.setuptools]
 py-modules = ["remedify", "remedify_mcp"]
+# ship the vendored EOL snapshot alongside the module (read offline at runtime)
+data-files = { "." = ["eol_data.json"] }

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.2
+
+- **endoflife.date reframed as a vendored snapshot** (external review): the
+  tool reads a committed `eol_data.json` OFFLINE at runtime — the
+  zero-dependency / air-gap promise holds — and a weekly CI job refreshes it
+  via `scripts/update_eol.py` + an automated PR. `--check-eol` remains as an
+  optional live network lookup.
+- **Schema canary** (`tests/test_canary.py`): pins the exact plan shape for
+  committed real fixtures so a parser/schema change can't *silently* drop
+  findings (fuzz proves "doesn't crash"; this proves "doesn't lie").
+- **SECURITY.md**: private reporting + documented threat model + honest
+  best-effort SLA.
+- **Weekly scheduled CI**: deep dpkg-property/fuzz passes, EOL-snapshot PR,
+  and a live Trivy-golden-file parse check (drift detection).
+
 ## 0.11.1
 
 - **endoflife.date integration** (`--check-eol`, opt-in): live EOL data
