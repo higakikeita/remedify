@@ -23,7 +23,9 @@ printf '   8 vulnerabilities across 8 OS packages\n'
 pause 2
 
 p "remedify scan.json"
-$R demo/before.json 2>/dev/null | sed -n '1,24p'
+# cut cleanly after the libc source-group block (consolidated cmd + reboot hint)
+$R demo/before.json 2>/dev/null | sed -n '1,20p'
+printf '   …(libssl3, curl, openssl steps omitted for the demo)\n'
 pause 4
 
 printf '\n\033[1m# One command per source package — backports & reboots called out.\033[0m\n'
@@ -37,7 +39,8 @@ printf '\n\033[1m# Upgraded, re-scanned — but did it actually work?\033[0m\n'
 pause 2
 
 p "remedify --baseline scan.json after.json"
-$R --baseline demo/before.json demo/after.json 2>/dev/null | sed -n '1,20p'
+# through the Resolved list so the "proof" lands
+$R --baseline demo/before.json demo/after.json 2>/dev/null | sed -n '1,22p'
 pause 4
 
 printf '\n\033[1m# Deterministic proof: what is fixed, what is still short, what is new.\033[0m\n'
