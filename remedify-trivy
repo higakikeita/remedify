@@ -1,0 +1,29 @@
+#!/bin/sh
+# Trivy plugin wrapper for remedify. In output-plugin mode Trivy pipes the JSON
+# report to our stdin; when called as `trivy remedify <file>` args are passed
+# through. Zero dependencies: just re-invokes the bundled remedify.py.
+set -eu
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+PY=python3
+command -v python3 >/dev/null 2>&1 || PY=python
+command -v "$PY" >/dev/null 2>&1 || {
+  echo "remedify: python3 is required but was not found on PATH" >&2
+  exit 1
+}
+
+# Two invocation styles:
+#   trivy image ... --output plugin=remedify   → Trivy pipes the report to
+#       our stdin; no scan-file argument is present → read from "-".
+#   trivy remedify scan.json                    → a scan file is passed → use it.
+# Decide by whether the last argument is an existing file (robust in CI/cron
+# where stdin may not be a tty).
+last=""
+for a in "$@"; do last="$a"; done
+
+if [ -n "$last" ] && [ -f "$last" ]; then
+  exec "$PY" "$DIR/remedify.py" "$@"
+else
+  exec "$PY" "$DIR/remedify.py" - "$@"
+fi

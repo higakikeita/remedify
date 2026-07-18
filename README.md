@@ -8,6 +8,9 @@
 
 > **copa patches container images. remedify tells you how to patch everything else.**
 
+<!-- Record with demo/demo.sh (see demo/README.md), then: ![remedify demo](docs/remedify-demo.gif) -->
+_90-second walkthrough: scan → plan → **proof it's fixed** — see [`demo/`](demo/)._
+
 Vulnerability scanners are great at telling you *what* is vulnerable and *which version* fixes it. They are terrible at telling you *what command to run*. After triage, every team asks the same question: "So how exactly do I fix this on my OS?" — and the answer today is "go read the Ubuntu/RHEL/Amazon Linux docs."
 
 **remedify** closes that last-mile gap. It takes vulnerability scan results (Trivy, Grype, or Sysdig — API, JSON, and CSV) and generates concrete, distro-aware remediation:
@@ -54,6 +57,26 @@ osv-scanner --format json -r . | python3 remedify.py -
 # 3. From a Sysdig vulnerability report CSV export
 python3 remedify.py report.csv --os ubuntu:22.04
 ```
+
+## As a Trivy plugin
+
+Run remedify directly from Trivy — findings flow straight into a remediation plan:
+
+```bash
+trivy plugin install github.com/higakikeita/remedify
+
+# Trivy scans, then pipes the report to remedify (output-plugin mode):
+trivy image --format json --output plugin=remedify nginx:latest
+
+# pass remedify flags through --output-plugin-arg:
+trivy image --format json --output plugin=remedify \
+  --output-plugin-arg "--format=shell" nginx:latest > fix.sh
+
+# or hand it a saved scan:
+trivy remedify scan.json
+```
+
+Zero-dependency: the plugin is the same single Python file, so it installs on any platform without a build step.
 
 No dependencies — any Python 3.9+ runs it as-is.
 

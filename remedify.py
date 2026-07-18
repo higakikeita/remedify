@@ -29,7 +29,7 @@ import re
 import sys
 from collections import defaultdict
 
-__version__ = "0.11.2"
+__version__ = "0.12.0"
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
 

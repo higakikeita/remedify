@@ -1,0 +1,10 @@
+{
+  "ArtifactName": "myapp:1.1",
+  "Metadata": { "OS": { "Family": "ubuntu", "Name": "22.04" } },
+  "Results": [{ "Target": "myapp", "Class": "os-pkgs", "Vulnerabilities": [
+    { "VulnerabilityID": "CVE-2024-6119", "PkgName": "libssl3", "InstalledVersion": "3.0.2-0ubuntu1.17", "FixedVersion": "3.0.2-0ubuntu1.18", "Severity": "HIGH", "References": ["https://ubuntu.com/security/notices/USN-6986-1"] },
+    { "VulnerabilityID": "CVE-2024-26923", "PkgName": "linux-image-generic", "InstalledVersion": "5.15.0.105.102", "FixedVersion": "5.15.0.107.104", "Severity": "HIGH" },
+    { "VulnerabilityID": "CVE-2019-18276", "PkgName": "bash", "InstalledVersion": "5.1-6ubuntu1", "FixedVersion": "", "Severity": "LOW" },
+    { "VulnerabilityID": "CVE-2024-45491", "PkgName": "libxml2", "InstalledVersion": "2.9.13+dfsg-1ubuntu0.3", "FixedVersion": "2.9.13+dfsg-1ubuntu0.4", "Severity": "HIGH" }
+  ]}]
+}

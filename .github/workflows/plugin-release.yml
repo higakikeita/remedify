@@ -1,0 +1,37 @@
+name: Build Trivy plugin asset
+
+# When a release is published, package the Trivy plugin tarball and attach it.
+# The tarball is arch-independent (single-file zero-dependency Python), so one
+# asset serves every platform — matching plugin.yaml's selector-less platform.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package plugin tarball
+        run: |
+          mkdir -p dist/plugin
+          cp remedify.py remedify_mcp.py eol_data.json remedify-trivy \
+             plugin.yaml LICENSE dist/plugin/
+          chmod +x dist/plugin/remedify-trivy
+          tar -C dist/plugin -czvf trivy-remedify.tar.gz .
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: trivy-remedify.tar.gz
+      - name: Upload as workflow artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-remedify
+          path: trivy-remedify.tar.gz

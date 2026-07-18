@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0
+
+- **Trivy plugin**: `trivy plugin install github.com/higakikeita/remedify`,
+  then `trivy image --format json --output plugin=remedify <img>` pipes
+  findings straight into a remediation plan (or `trivy remedify scan.json`).
+  Zero-dependency single-file wrapper — one arch-independent asset for all
+  platforms. Release CI packages/attaches the plugin tarball automatically.
+
 ## 0.11.2
 
 - **endoflife.date reframed as a vendored snapshot** (external review): the

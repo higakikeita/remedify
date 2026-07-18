@@ -1,0 +1,23 @@
+name: remedify
+version: "0.12.0"
+repository: github.com/higakikeita/remedify
+maintainer: higakikeita
+output: true
+summary: Turn scan results into OS-specific remediation commands
+description: |-
+  remedify converts Trivy findings into a deterministic remediation plan:
+  per-distro fix commands (apt/yum/dnf/apk/zypper), backport explanations,
+  reboot/service-restart hints, language-package rebuild steps, and a
+  "no fix available" section.
+
+  Usage (output-plugin mode — Trivy pipes the JSON report to remedify):
+    trivy image --format json --output plugin=remedify nginx:latest
+    trivy image --format json --output plugin=remedify \
+      --output-plugin-arg "--format=shell" nginx:latest > fix.sh
+
+  Or pass a saved scan file:
+    trivy remedify scan.json
+platforms:
+  # Arch-independent: remedify is single-file, zero-dependency Python 3.
+  - uri: https://github.com/higakikeita/remedify/releases/download/v0.12.0/trivy-remedify.tar.gz
+    bin: ./remedify-trivy
