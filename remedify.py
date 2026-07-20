@@ -1848,6 +1848,14 @@ def verify(before_parsed, after_parsed):
     b_pkgs = {p for (p, _) in b}
     a_pkgs = {p for (p, _) in a}
 
+    # An after-scan that collapses to zero findings against a non-empty baseline
+    # is almost always a broken/truncated scan (scan failed, wrong image,
+    # stricter --min-severity) — not a genuine 100% fix. Even a fully-patched
+    # image still reports no-fix/unfixed findings. Flag it so a bogus 100% rate
+    # can't silently pass a CI gate (fails open) (#4).
+    before_total, after_total = len(b), len(a)
+    suspicious_after = before_total > 0 and after_total == 0
+
     resolved, remaining, new, anomalies = [], [], [], []
 
     for key, bf in b.items():
@@ -1882,6 +1890,8 @@ def verify(before_parsed, after_parsed):
         "before": before_parsed["target"], "after": after_parsed["target"],
         "os": f'{after_parsed["family"]} {after_parsed["os_name"]}'.strip(),
         "different_target": before_parsed["target"] != after_parsed["target"],
+        "before_total": before_total, "after_total": after_total,
+        "suspicious_after": suspicious_after,
         "score": {
             "fixable": fixable, "resolved": len(resolved),
             "rate": round(rate, 3),
@@ -1916,6 +1926,14 @@ def render_verify_markdown(v):
              f"{s['new']} new, {s['unfixable_remaining']} unfixable (expected)"
              + (f", {s['anomalies']} anomalies" if s['anomalies'] else "") + ".")
     L.append("")
+    if v.get("suspicious_after"):
+        L.append(f"> ⛔ **Suspicious after-scan**: the baseline had "
+                 f"{v['before_total']} findings but the after-scan reported "
+                 f"**0**. This looks like a failed, truncated, or wrong-target "
+                 f"scan rather than a real 100% fix — do **not** trust the rate "
+                 f"below, and re-run the after-scan. (With `--fail-on` this "
+                 f"fails the gate.)")
+        L.append("")
     if v["different_target"]:
         L.append("> ⚠️ Comparing different targets — treat cross-target results "
                  "as advisory.")
@@ -1961,9 +1979,12 @@ def render_verify_markdown(v):
 
 
 def verify_exit_code(v, fail_on):
-    """exit 2 if any actionable-remaining or new finding at/above fail_on."""
+    """exit 2 if any actionable-remaining or new finding at/above fail_on, or if
+    the after-scan collapsed (a broken scan must never pass the gate)."""
     if not fail_on:
         return 0
+    if v.get("suspicious_after"):
+        return 2
     threshold = SEVERITY_ORDER.get(fail_on.upper(), 0)
     pool = [r for r in v["remaining"] if r["reason"] != "no_fix"] + v["new"]
     if any(SEVERITY_ORDER.get(r["severity"], 0) >= threshold for r in pool):

@@ -104,6 +104,54 @@ class TestVerifyBehavior(unittest.TestCase):
         self.assertEqual(remedify.verify_exit_code(v, "CRITICAL"), 0)
 
 
+class TestVerifyEmptyAfterScan(unittest.TestCase):
+    """Regression (#4): an after-scan that collapses to zero findings is a
+    broken scan, not a 100% fix — it must warn and fail the --fail-on gate
+    instead of silently passing (fail-open)."""
+
+    BEFORE = {"ArtifactName": "img:v1",
+              "Metadata": {"OS": {"Family": "ubuntu", "Name": "22.04"}},
+              "Results": [{"Class": "os-pkgs", "Vulnerabilities": [
+                  {"VulnerabilityID": "CVE-2024-9001", "PkgName": "openssl",
+                   "InstalledVersion": "3.0.0", "FixedVersion": "3.0.2",
+                   "Severity": "CRITICAL"}]}]}
+    EMPTY_AFTER = {"ArtifactName": "img:v1",
+                   "Metadata": {"OS": {"Family": "ubuntu", "Name": "22.04"}},
+                   "Results": []}
+
+    def setUp(self):
+        self.v = remedify.verify(remedify.parse_trivy(self.BEFORE),
+                                 remedify.parse_trivy(self.EMPTY_AFTER))
+
+    def test_flagged_suspicious(self):
+        self.assertTrue(self.v["suspicious_after"])
+        self.assertEqual(self.v["before_total"], 1)
+        self.assertEqual(self.v["after_total"], 0)
+
+    def test_gate_fails_instead_of_open(self):
+        # the bug: --fail-on CRITICAL used to exit 0 on an empty after-scan
+        self.assertEqual(remedify.verify_exit_code(self.v, "CRITICAL"), 2)
+        self.assertEqual(remedify.verify_exit_code(self.v, "HIGH"), 2)
+
+    def test_no_gate_still_warns_not_fails(self):
+        # without --fail-on we don't force a nonzero exit, but we still warn
+        self.assertEqual(remedify.verify_exit_code(self.v, None), 0)
+        self.assertIn("Suspicious after-scan",
+                      remedify.render_verify_markdown(self.v))
+
+    def test_healthy_after_is_not_flagged(self):
+        # a normal non-empty after-scan must not be a false positive
+        v = remedify.verify(remedify.parse_trivy(load("verify-before.json")),
+                            remedify.parse_trivy(load("verify-after.json")))
+        self.assertFalse(v["suspicious_after"])
+
+    def test_empty_before_is_not_flagged(self):
+        # nothing to verify -> not suspicious (avoid crying wolf)
+        v = remedify.verify(remedify.parse_trivy(self.EMPTY_AFTER),
+                            remedify.parse_trivy(self.EMPTY_AFTER))
+        self.assertFalse(v["suspicious_after"])
+
+
 class TestVerifyCli(unittest.TestCase):
     def _run(self, *args):
         script = os.path.join(os.path.dirname(__file__), "..", "remedify.py")
