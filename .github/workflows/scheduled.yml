@@ -10,6 +10,11 @@ on:
     - cron: "0 6 * * 1"   # Mondays 06:00 UTC
   workflow_dispatch: {}
 
+# Least privilege: read-only by default; only the EOL-refresh job below is
+# granted write (it opens a PR). Matches README's "self-maintaining" claim.
+permissions:
+  contents: read
+
 jobs:
   deep-suite:
     runs-on: ubuntu-latest
@@ -29,6 +34,9 @@ jobs:
     # Regenerate the vendored EOL snapshot from endoflife.date and open a PR if
     # it changed. remedify stays offline at runtime; only this job hits the net.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # push the auto/eol-refresh branch
+      pull-requests: write   # open the refresh PR
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
