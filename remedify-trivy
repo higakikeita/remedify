@@ -16,13 +16,22 @@ command -v "$PY" >/dev/null 2>&1 || {
 # Two invocation styles:
 #   trivy image ... --output plugin=remedify   → Trivy pipes the report to
 #       our stdin; no scan-file argument is present → read from "-".
-#   trivy remedify scan.json                    → a scan file is passed → use it.
-# Decide by whether the last argument is an existing file (robust in CI/cron
-# where stdin may not be a tty).
-last=""
-for a in "$@"; do last="$a"; done
+#   trivy remedify scan.json [flags]            → a scan file is passed → use it.
+# Scan ALL arguments for an existing file, not just the last one: a flag after
+# the file (e.g. `trivy remedify scan.json --format shell`) would otherwise
+# make the last arg "shell", misroute to stdin, and pass both "-" and the file
+# to remedify.py — an argparse error (#5). An explicit leading "-" forces
+# stdin.
+scan_file=""
+if [ "${1:-}" = "-" ]; then
+  scan_file="-"
+else
+  for a in "$@"; do
+    if [ -f "$a" ]; then scan_file="$a"; break; fi
+  done
+fi
 
-if [ -n "$last" ] && [ -f "$last" ]; then
+if [ -n "$scan_file" ]; then
   exec "$PY" "$DIR/remedify.py" "$@"
 else
   exec "$PY" "$DIR/remedify.py" - "$@"
