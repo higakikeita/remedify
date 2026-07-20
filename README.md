@@ -8,12 +8,13 @@
 
 > **copa patches container images. remedify tells you how to patch everything else.**
 
-<!-- Record with demo/demo.sh (see demo/README.md), then: ![remedify demo](docs/remedify-demo.gif) -->
-_90-second walkthrough: scan → plan → **proof it's fixed** — see [`demo/`](demo/)._
+![remedify demo](docs/remedify-demo.gif)
+
+_90-second walkthrough: a Trivy/Sysdig finding → remedify → the exact `apt`/`dnf`/`apk` command → rescan & verify. Re-record with [`demo/demo.sh`](demo/demo.sh)._
 
 Vulnerability scanners are great at telling you *what* is vulnerable and *which version* fixes it. They are terrible at telling you *what command to run*. After triage, every team asks the same question: "So how exactly do I fix this on my OS?" — and the answer today is "go read the Ubuntu/RHEL/Amazon Linux docs."
 
-**remedify** closes that last-mile gap. It takes vulnerability scan results (Trivy, Grype, or Sysdig — API, JSON, and CSV) and generates concrete, distro-aware remediation:
+**remedify** closes that last-mile gap. It takes vulnerability scan results (Trivy, Grype, OSV-Scanner, or Sysdig — API, JSON, and CSV) and generates concrete, distro-aware remediation:
 
 ```
 $ trivy rootfs --format json -o scan.json /
@@ -226,9 +227,9 @@ python3 remedify.py examples/trivy-ubuntu.json --format shell > fix.sh
 ```
  scan results        parser          normalized        generators          renderers
 ┌────────────┐   ┌───────────┐   ┌──────────────┐   ┌──────────────┐   ┌────────────┐
-│ Trivy JSON │──▶│  trivy.py │──▶│ Finding      │──▶│ apt / dnf /  │──▶│ markdown   │
-│ Grype JSON │   │ (grype 🔜)│   │  pkg,        │   │ apk / zypper │   │ shell      │
-│ Sysdig 🔜  │   │           │   │  fix ver,    │   │ + backport   │   │ json       │
+│ Trivy JSON │──▶│  one per  │──▶│ Finding      │──▶│ apt / dnf /  │──▶│ markdown   │
+│ Grype JSON │   │  scanner  │   │  pkg,        │   │ apk / zypper │   │ shell      │
+│ OSV/Sysdig │   │           │   │  fix ver,    │   │ + backport   │   │ json       │
 └────────────┘   └───────────┘   │  CVEs, refs  │   │ + hints      │   │ sarif 🔜   │
                                  └──────────────┘   └──────────────┘   └────────────┘
 ```
@@ -237,10 +238,21 @@ Each stage is pluggable: new scanners are parsers, new distros are generators, n
 
 ## Roadmap
 
-- **v0.2 — inputs**: Grype JSON, Sysdig vulnerability report CSV/JSON
-- **v0.3 — enrichment**: query vendor security data (Ubuntu OVAL/USN API, Red Hat CSAF/errata API, ALAS) to add "not affected / needs-restart" precision beyond what the scanner reports
-- **v0.4 — containers**: emit copa-compatible patch workflows for image findings; language packages (pip/npm) remediation
-- **v0.5 — integration**: GitHub Action, `--format sarif`, Windows (KB articles / `winget`), MCP server so AI agents can call it
+**Shipped**
+
+- **Inputs**: Trivy, Grype, OSV-Scanner, and Sysdig (scan JSON, report CSV, and Vulnerability Management API)
+- **Language packages**: pip/npm/Maven/Go/etc. findings surfaced as upgrade-and-rebuild steps (OS package managers can't fix them)
+- **Outputs**: markdown, shell script, JSON, Ansible playbook
+- **verify**: closed-loop before/after diff — proof a fix actually landed, with a CI gate (`--fail-on`)
+- **EOL detection** and **prioritization** (in-use / exploitable / KEV)
+- **MCP server** (`remedify_mcp.py`) so AI agents can call it
+- **Trivy plugin**: `trivy remedify` / `--output plugin=remedify`
+
+**Next**
+
+- **Enrichment**: query vendor security data (Ubuntu OVAL/USN, Red Hat CSAF/errata, ALAS) for "not affected / needs-restart" precision
+- **Integration**: GitHub Action, `--format sarif`
+- **Windows**: KB articles / `winget`
 - **Rewrite in Go** once the interface stabilizes (single static binary, same ecosystem as copa/trivy)
 
 ## Non-goals
@@ -250,8 +262,11 @@ Each stage is pluggable: new scanners are parsers, new distros are generators, n
 
 ## Status
 
-PoC / pre-alpha. Name provisional. Feedback and contributions welcome.
+Alpha — usable today, interfaces may change before v1.0. Published on PyPI
+(`pip install remedify`) with a comprehensive test suite (190+ tests, property
+tests against real `dpkg`, fuzzing, and schema canaries). Feedback and
+contributions welcome.
 
 ## License
 
-Apache-2.0 (proposed).
+Apache-2.0.
