@@ -265,7 +265,7 @@ Each stage is pluggable: new scanners are parsers, new distros are generators, n
 Alpha — usable today, interfaces may change before v1.0. Published on PyPI
 (`pip install remedify`) with a comprehensive test suite (190+ tests, property
 tests against real `dpkg`, fuzzing, and schema canaries). Feedback and
-contributions welcome.
+contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

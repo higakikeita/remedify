@@ -1,34 +1,45 @@
 # Contributing to remedify
 
-Thanks for your interest! remedify is early-stage — the fastest way to help
-is to try it against your own scan results and file an issue with anything
-that breaks or reads wrong.
+Thanks for looking at remedify. It's a **last-mile vulnerability remediation planner**:
+it turns scanner output (Trivy / Grype / OSV / Sysdig) into the exact, deterministic
+commands to actually fix each finding — no guessing, no "ask an AI to invent a fix".
+
+## Before you start: honest expectations
+
+- **remedify is maintained by one person** (bus factor: 1). Responses are best-effort
+  and may take days, sometimes longer. I'd rather tell you that up front than leave an
+  issue silent.
+- **Correctness comes first.** This is a security tool, so bugs where remedify could
+  *silently drop a finding* or *emit a wrong command* are triaged ahead of features.
+- **Non-goal:** remedify never auto-applies patches. It plans; humans (or their CI) decide.
+  PRs that cross that line won't be merged.
 
 ## Ways to contribute
 
-- **Bug reports**: attach the (sanitized) scanner JSON that triggered it
-- **New distro generators**: each package manager is a small function in
-  `remedify.py` — see `fix_command()`
-- **New scanner parsers**: Grype and Sysdig report parsers are the top
-  roadmap items (see BACKLOG.md)
-- **Real-world validation**: run it on production scan output and tell us
-  where the commands or backport notes are wrong
+- **Good first issues:** look for the [`good first issue`](https://github.com/higakikeita/remedify/labels/good%20first%20issue)
+  label. These are scoped and have a maintainer to guide you.
+- **Report a bug:** include the scanner, the input file (anonymized is fine), the command
+  you ran, and what you expected vs got. A failing input is the most useful thing you can send.
+- **Add a scanner or distro:** see the parser template ([#14](https://github.com/higakikeita/remedify/issues/14)).
+  The contract is a normalized finding; match an existing parser (`parse_trivy` / `parse_grype`)
+  as your model.
 
 ## Development
 
-```bash
-git clone <repo> && cd remedify
-python3 -m unittest discover tests -v      # run tests
-python3 remedify.py examples/trivy-ubuntu.json   # smoke test
-```
+- Python, **single file, standard library only** (zero dependencies). Keep it that way —
+  it's a design promise (`scp remedify.py` and it runs anywhere).
+- Run the tests before opening a PR:
+  ```bash
+  python -m unittest discover -s tests -v
+  ```
+- New behavior needs a regression test. Correctness fixes especially: add a test that
+  fails before your fix and passes after.
+- Keep the CLI deterministic. LLM/BYO-key paths are opt-in and must never be required for
+  core output.
 
-No dependencies. Please keep it that way for the CLI core — stdlib only.
+## License
 
-## Pull requests
-
-- One logical change per PR
-- Add or update a test in `tests/`
-- Update BACKLOG.md if you close an item
+By contributing you agree your contribution is licensed under Apache-2.0 (the project license).
 
 ## Conduct
 
