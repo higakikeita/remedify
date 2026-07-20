@@ -796,5 +796,53 @@ class TestRenderers(unittest.TestCase):
         json.loads(remedify.render_json(self.plan))
 
 
+class TestFamilyResolvedVersionPinning(unittest.TestCase):
+    """Regression: distros that reach apk/zypper via *family resolution*
+    (not a direct pkg-manager name) must still emit version-PINNED commands.
+    Determinism guarantee — a plan's execution result must not drift with time.
+    Tests only; no behavior change."""
+
+    def _plan_for_family(self, family, os_name):
+        # start from the real Alpine fixture, override only the OS family so we
+        # exercise detect_pkg_manager's family resolution end-to-end
+        data = load("trivy-alpine.json")
+        data["Metadata"]["OS"]["Family"] = family
+        data["Metadata"]["OS"]["Name"] = os_name
+        return remedify.build_plan(remedify.parse_trivy(data))
+
+    def _assert_all_steps_pinned(self, plan, expected_pm):
+        self.assertEqual(plan["pkg_manager"], expected_pm)
+        self.assertTrue(plan["steps"], "expected at least one remediation step")
+        for step in plan["steps"]:
+            self.assertIsNotNone(step["command"])
+            # every package spec in the command must carry =<fix_version>
+            for pkg in step["packages"]:
+                self.assertIn(f"{pkg}={step['fix_version']}", step["command"],
+                              f"{expected_pm}: {pkg} not pinned in "
+                              f"{step['command']!r}")
+            # no unpinned upgrade/update verbs may appear
+            self.assertNotIn("apk upgrade", step["command"])
+            self.assertNotIn("zypper update", step["command"])
+
+    def test_wolfi_resolves_to_apk_and_pins(self):
+        self._assert_all_steps_pinned(self._plan_for_family("wolfi", "1"), "apk")
+
+    def test_chainguard_resolves_to_apk_and_pins(self):
+        self._assert_all_steps_pinned(
+            self._plan_for_family("chainguard", ""), "apk")
+
+    def test_suse_resolves_to_zypper_and_pins(self):
+        self._assert_all_steps_pinned(
+            self._plan_for_family("opensuse-leap", "15.5"), "zypper")
+
+    def test_suse_shell_form_is_pinned_and_noninteractive(self):
+        # the --format shell path re-renders with assume_yes=True; still pinned
+        plan = self._plan_for_family("sles", "15.5")
+        sh = remedify.render_shell(plan)
+        self.assertIn("zypper --non-interactive install ", sh)
+        step = plan["steps"][0]
+        self.assertIn(f"{step['packages'][0]}={step['fix_version']}", sh)
+
+
 if __name__ == "__main__":
     unittest.main()
