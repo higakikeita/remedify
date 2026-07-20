@@ -28,16 +28,17 @@ def plan_for(name, parser):
 
 def counts(plan):
     return (len(plan["steps"]), len(plan["app_steps"]),
-            len(plan["unfixed"]), len(plan["rejected"]))
+            len(plan["unfixed"]), len(plan["unclassified"]),
+            len(plan["rejected"]))
 
 
 class TestSchemaCanary(unittest.TestCase):
-    # (fixture, parser, pkg_manager, (steps, app, unfixed, rejected))
+    # (fixture, parser, pkg_manager, (steps, app, unfixed, unclassified, rejected))
     BASELINES = [
-        ("trivy-real-ubuntu1804.json", remedify.parse_trivy, "apt", (1, 0, 1, 0)),
-        ("sysdig-api-v1.json", remedify.parse_sysdig_json, "apk", (2, 1, 1, 0)),
-        ("grype-ubuntu.json", remedify.parse_grype, "apt", (2, 1, 1, 0)),
-        ("osv-scanner.json", remedify.parse_osv, "apt", (2, 1, 1, 0)),
+        ("trivy-real-ubuntu1804.json", remedify.parse_trivy, "apt", (1, 0, 1, 0, 0)),
+        ("sysdig-api-v1.json", remedify.parse_sysdig_json, "apk", (2, 1, 1, 0, 0)),
+        ("grype-ubuntu.json", remedify.parse_grype, "apt", (2, 1, 1, 0, 0)),
+        ("osv-scanner.json", remedify.parse_osv, "apt", (2, 1, 1, 0, 0)),
     ]
 
     def test_exact_plan_shape(self):

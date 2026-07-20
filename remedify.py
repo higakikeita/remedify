@@ -610,9 +610,14 @@ def parse_trivy(data: dict):
             continue
         klass = result.get("Class")
         is_os = klass in (None, "os-pkgs")
-        ecosystem = LANG_ECOSYSTEMS.get(_s(result.get("Type")).lower())
-        if not is_os and (klass != "lang-pkgs" or not ecosystem):
-            continue
+        raw_type = _s(result.get("Type")).lower()
+        ecosystem = LANG_ECOSYSTEMS.get(raw_type)
+        unknown_eco = None
+        if not is_os:
+            if klass != "lang-pkgs":
+                continue  # secret/config/license results carry no Vulnerabilities
+            if not ecosystem:
+                unknown_eco = raw_type or "unknown"
         for v in _l(result.get("Vulnerabilities")):
             if not isinstance(v, dict):
                 continue
@@ -629,8 +634,9 @@ def parse_trivy(data: dict):
                 status=_s(v.get("Status")).lower(),
                 title=_s(v.get("Title")),
                 references=refs,
-                ecosystem=None if is_os else ecosystem,
+                ecosystem=None if (is_os or unknown_eco) else ecosystem,
                 location=_s(result.get("Target")) if not is_os else None,
+                unknown_ecosystem=unknown_eco,
             )
     return parsed
 
@@ -653,14 +659,28 @@ def _empty_parsed(target="unknown", family="", os_name=""):
             "max_severity": "UNKNOWN", "locations": set(),
             "in_use": False, "exploitable": False, "kev": False,
         }),
+        # Findings whose ecosystem/package-type we recognise as "not OS" but
+        # cannot map to a package manager. We can't generate a command, but we
+        # must never silently drop them (see _add_finding).
+        "unclassified": defaultdict(lambda: {
+            "vulns": [], "fixed_versions": set(), "installed": None,
+            "max_severity": "UNKNOWN", "ecosystem": None, "locations": set(),
+            "in_use": False, "exploitable": False, "kev": False,
+        }),
         "rejected": [],
     }
 
 
 def _add_finding(parsed, pkg, installed, fixed, severity, vuln_id,
                  status="", title="", references=None, ecosystem=None,
-                 location=None, in_use=False, exploitable=False, kev=False):
-    """Route one vulnerability record into findings / app / unfixed."""
+                 location=None, in_use=False, exploitable=False, kev=False,
+                 unknown_ecosystem=None):
+    """Route one vulnerability record into findings / app / unfixed.
+
+    `unknown_ecosystem` is the raw type/ecosystem label of a finding we could
+    not map to a package manager: it goes into the `unclassified` bucket so it
+    is surfaced (never silently dropped), even though we can't emit a command.
+    """
     if not pkg:
         return
     sev = severity if severity in SEVERITY_ORDER else \
@@ -671,6 +691,21 @@ def _add_finding(parsed, pkg, installed, fixed, severity, vuln_id,
         bucket["in_use"] = bucket["in_use"] or in_use
         bucket["exploitable"] = bucket["exploitable"] or exploitable
         bucket["kev"] = bucket["kev"] or kev
+
+    if unknown_ecosystem:
+        uc = parsed["unclassified"][(unknown_ecosystem, pkg)]
+        uc["installed"] = installed or uc["installed"]
+        _merge_flags(uc)
+        uc["ecosystem"] = unknown_ecosystem
+        if location:
+            uc["locations"].add(location)
+        for candidate in re.split(r"[,\s]+", _s(fixed)):
+            if candidate:
+                uc["fixed_versions"].add(candidate)
+        if SEVERITY_ORDER.get(sev, 0) > SEVERITY_ORDER.get(uc["max_severity"], 0):
+            uc["max_severity"] = sev
+        uc["vulns"].append(vuln)
+        return
 
     if not fixed or fixed.lower() in ("none", "n/a", "-"):
         u = parsed["unfixed"][pkg]
@@ -808,13 +843,15 @@ def parse_sysdig_csv(text: str, os_override: str = None):
 
         pkg_type = col("pkg_type").lower()
         ecosystem = None
+        unknown_eco = None
         if pkg_type not in SYSDIG_OS_PKG_TYPES:
             ecosystem = LANG_ECOSYSTEMS.get(pkg_type)
             if not ecosystem:
-                continue  # unknown package type
+                unknown_eco = pkg_type or "unknown"
         _add_finding(parsed, pkg=pkg, installed=col("installed"),
                      fixed=col("fixed"), severity=(col("severity") or "UNKNOWN").upper(),
-                     vuln_id=col("vuln_id"), ecosystem=ecosystem)
+                     vuln_id=col("vuln_id"), ecosystem=ecosystem,
+                     unknown_ecosystem=unknown_eco)
 
     parsed["family"], parsed["os_name"] = parse_os_string(os_override or os_string)
     return parsed
@@ -848,10 +885,11 @@ def parse_grype(data: dict):
         a = _d(m.get("artifact"))
         a_type = _s(a.get("type")).lower()
         ecosystem = None
+        unknown_eco = None
         if a_type not in GRYPE_OS_TYPES:
             ecosystem = GRYPE_LANG_TYPES.get(a_type)
             if not ecosystem:
-                continue
+                unknown_eco = a_type or "unknown"
         fix = _d(v.get("fix"))
         fixed = ""
         if _s(fix.get("state")) == "fixed":
@@ -870,7 +908,8 @@ def parse_grype(data: dict):
             status="" if fixed else _s(fix.get("state")).replace("-", "_"),
             references=[u for u in _l(v.get("urls")) if isinstance(u, str)],
             ecosystem=ecosystem,
-            location=location if ecosystem else None,
+            location=location if (ecosystem or unknown_eco) else None,
+            unknown_ecosystem=unknown_eco,
         )
     return parsed
 
@@ -941,13 +980,14 @@ def parse_osv(data: dict, os_override: str = None):
             eco_raw = _s(pkg.get("ecosystem"))
             eco_base = eco_raw.split(":")[0].strip().lower()
             ecosystem = None
+            unknown_eco = None
             if eco_base in OSV_OS_ECOSYSTEMS:
                 if not os_string:
                     os_string = eco_raw.replace(":", " ")
             else:
                 ecosystem = OSV_LANG_ECOSYSTEMS.get(eco_base)
                 if not ecosystem:
-                    continue  # unknown ecosystem
+                    unknown_eco = eco_raw or "unknown"
             for v in _l(p.get("vulnerabilities")):
                 if not isinstance(v, dict):
                     continue
@@ -960,7 +1000,8 @@ def parse_osv(data: dict, os_override: str = None):
                     vuln_id=_s(v.get("id")),
                     references=[r for r in refs if r],
                     ecosystem=ecosystem,
-                    location=_s(src.get("path")) if ecosystem else None)
+                    location=_s(src.get("path")) if (ecosystem or unknown_eco) else None,
+                    unknown_ecosystem=unknown_eco)
     parsed["family"], parsed["os_name"] = parse_os_string(os_override or os_string)
     return parsed
 
@@ -1020,10 +1061,11 @@ def parse_sysdig_json(data: dict, os_override: str = None):
             continue
         pkg_type = _s(pkg.get("type")).lower()
         ecosystem = None
+        unknown_eco = None
         if pkg_type not in SYSDIG_OS_PKG_TYPES:
             ecosystem = LANG_ECOSYSTEMS.get(pkg_type)
             if not ecosystem:
-                continue
+                unknown_eco = pkg_type or "unknown"
 
         vulns = pkg.get("vulns")
         if not isinstance(vulns, list):
@@ -1044,6 +1086,7 @@ def parse_sysdig_json(data: dict, os_override: str = None):
                          severity=_sysdig_severity(v.get("severity")),
                          vuln_id=_s(v.get("name")) or _s(v.get("vulnName")) or _s(v.get("cve")),
                          ecosystem=ecosystem,
+                         unknown_ecosystem=unknown_eco,
                          location=_s(pkg.get("path")) or None,
                          in_use=bool(pkg.get("isRunning")),
                          exploitable=bool(v.get("exploitable")),
@@ -1330,6 +1373,23 @@ def build_plan(parsed, min_severity="UNKNOWN", context="auto", eol_fn=detect_eol
         })
     unfixed.sort(key=lambda i: -SEVERITY_ORDER.get(i["severity"], 0))
 
+    # Unclassified findings (unknown ecosystem): surfaced, never command-ified.
+    # Like unfixed, never filtered by min-severity — omitting them silently is
+    # exactly the failure this bucket exists to prevent.
+    unclassified = []
+    for (eco, pkg), u in sorted(parsed.get("unclassified", {}).items()):
+        unclassified.append({
+            "ecosystem": eco,
+            "package": pkg,
+            "installed": u["installed"],
+            "fix_version": highest_version(u["fixed_versions"]) or None,
+            "severity": u["max_severity"],
+            "cves": sorted({v["id"] for v in u["vulns"] if v["id"]}),
+            "locations": sorted(u["locations"]),
+            "in_use": u["in_use"], "exploitable": u["exploitable"], "kev": u["kev"],
+        })
+    unclassified.sort(key=lambda i: -SEVERITY_ORDER.get(i["severity"], 0))
+
     third_party = detect_third_party(parsed["target"])
     if context == "auto":
         effective_context = "image" if (third_party or
@@ -1349,6 +1409,7 @@ def build_plan(parsed, min_severity="UNKNOWN", context="auto", eol_fn=detect_eol
         "steps": steps,
         "app_steps": app_steps,
         "unfixed": unfixed,
+        "unclassified": unclassified,
         "rejected": parsed.get("rejected", []),
     }
 
@@ -1452,6 +1513,9 @@ def render_markdown(plan):
                      f"{len(plan['app_steps'])}")
     if plan["unfixed"]:
         lines.append(f"- **No fix available**: {len(plan['unfixed'])} packages")
+    if plan.get("unclassified"):
+        lines.append(f"- **Unclassified (manual review)**: "
+                     f"{len(plan['unclassified'])} packages")
     lines.append("")
     if plan["eol_warning"]:
         lines.append(f"> ⚠️ **EOL**: {plan['eol_warning']}")
@@ -1539,6 +1603,25 @@ def render_markdown(plan):
             lines.append(line)
         lines.append("")
 
+    if plan.get("unclassified"):
+        lines.append("## ❓ Unclassified findings (manual review)")
+        lines.append("")
+        lines.append("These findings are in an ecosystem/package type remedify does "
+                     "not yet map to a package manager, so no command was generated. "
+                     "They are **real findings** — review and remediate them manually "
+                     "(upgrade the dependency in its native tooling).")
+        lines.append("")
+        for u in plan["unclassified"]:
+            line = (f"- **{u['package']}** `{u['severity']}` ({u['ecosystem']}) "
+                    f"({', '.join(u['cves'])})")
+            if u["fix_version"]:
+                line += f" — fix: `{u['fix_version']}`"
+            badges = _priority_badges(u)
+            if badges:
+                line += f" — 🚨 {', '.join(badges)}"
+            lines.append(line)
+        lines.append("")
+
     if plan.get("rejected"):
         lines.append("## ⛔ Rejected findings (unsafe scan input)")
         lines.append("")
@@ -1616,6 +1699,14 @@ def render_shell(plan):
             lines.append(f"# {u['package']} [{u['severity']}] "
                          f"{', '.join(u['cves'])}: {u['status_label']}")
         lines.append("")
+    if plan.get("unclassified"):
+        lines.append("# --- Unclassified: unknown ecosystem, no command generated, "
+                     "review manually ---")
+        for u in plan["unclassified"]:
+            lines.append(f"# {u['package']} ({u['ecosystem']}) [{u['severity']}] "
+                         f"{', '.join(u['cves'])}"
+                         f"{': fix ' + u['fix_version'] if u['fix_version'] else ''}")
+        lines.append("")
     if needs_reboot:
         lines.append('echo "One or more updates require a reboot. Schedule one."')
     return "\n".join(lines)
@@ -1657,6 +1748,9 @@ def _flatten_findings(parsed):
         put(pkg, eco, a["installed"], req, a["vulns"])
     for pkg, u in parsed["unfixed"].items():
         put(pkg, u.get("ecosystem"), u["installed"], None, u["vulns"])
+    for (eco, pkg), u in parsed.get("unclassified", {}).items():
+        req = highest_version(u["fixed_versions"]) if u["fixed_versions"] else None
+        put(pkg, eco, u["installed"], req, u["vulns"])
     return out
 
 
@@ -1841,6 +1935,10 @@ def render_ansible(plan):
     for u in plan["unfixed"]:
         L.append(f"# NO FIX AVAILABLE: {u['package']} "
                  f"[{u['severity']}] {', '.join(u['cves'])} — {u['status_label']}")
+    for u in plan.get("unclassified", []):
+        L.append(f"# UNCLASSIFIED (unknown ecosystem, review manually): "
+                 f"{u['package']} ({u['ecosystem']}) [{u['severity']}] "
+                 f"{', '.join(u['cves'])}")
     for s in plan["app_steps"]:
         L.append(f"# APP DEPENDENCY (fix in source + rebuild): {s['package']} "
                  f"-> {s['fix_version']} ({s['ecosystem']})")
@@ -2022,7 +2120,8 @@ def main():
         threshold = SEVERITY_ORDER[args.fail_on]
         worst = 0
         for plan in plans:
-            for coll in (plan["steps"], plan["app_steps"], plan["unfixed"]):
+            for coll in (plan["steps"], plan["app_steps"], plan["unfixed"],
+                         plan["unclassified"]):
                 for item in coll:
                     worst = max(worst, SEVERITY_ORDER.get(item["severity"], 0))
         if worst >= threshold:
