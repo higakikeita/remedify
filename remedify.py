@@ -587,9 +587,67 @@ def compare_versions(a: str, b: str):
     return _verrevcmp(va, vb)
 
 
-def highest_version(versions):
+# apk (Alpine) suffix order. Unlike dpkg — where '_' is an ordinary character
+# sorting AFTER the base version — apk treats these as release-phase markers:
+# _alpha < _beta < _pre < _rc < (bare release) < _cvs < _svn < _git < _hg < _p.
+# Applying dpkg semantics to apk ranks a release candidate ABOVE its final
+# release, so highest_version() would pin e.g. 1.5.0_rc1 as the "fix" (#3).
+_APK_SUFFIX_ORDER = {
+    "alpha": 0, "beta": 1, "pre": 2, "rc": 3,
+    "": 4,  # bare release
+    "cvs": 5, "svn": 6, "git": 7, "hg": 8, "p": 9,
+}
+_APK_SUFFIX_RE = re.compile(r"_(alpha|beta|pre|rc|cvs|svn|git|hg|p)(\d*)$")
+
+
+def _apk_parse(v):
+    """Parse an apk version into comparison keys: (numeric_parts, letter,
+    suffix_rank, suffix_num, revision). Faithful to apk_version_compare for
+    real Alpine strings: dotted numeric release, optional trailing letter,
+    _suffix[N], and the -rN package revision."""
+    v = _s(v)
+    revision = 0
+    m = re.search(r"-r(\d+)$", v)
+    if m:
+        revision = int(m.group(1))
+        v = v[:m.start()]
+    suffix_rank, suffix_num = _APK_SUFFIX_ORDER[""], 0
+    ms = _APK_SUFFIX_RE.search(v)
+    if ms:
+        suffix_rank = _APK_SUFFIX_ORDER[ms.group(1)]
+        suffix_num = int(ms.group(2)) if ms.group(2) else 0
+        v = v[:ms.start()]
+    letter = ""
+    ml = re.search(r"([a-z])$", v)
+    if ml:
+        letter, v = ml.group(1), v[:ml.start()]
+    parts = [int(p) if p.isdigit() else 0 for p in v.split(".")]
+    return parts, letter, suffix_rank, suffix_num, revision
+
+
+def compare_versions_apk(a, b):
+    """-1 / 0 / 1 with apk semantics (see _APK_SUFFIX_ORDER). Used for Alpine /
+    Wolfi / Chainguard packages instead of the dpkg comparator."""
+    pa, pb = _apk_parse(a), _apk_parse(b)
+    parts_a, parts_b = pa[0], pb[0]
+    for i in range(max(len(parts_a), len(parts_b))):
+        # a longer numeric release outranks a shorter one (1.5.0 > 1.5)
+        if i >= len(parts_a):
+            return -1
+        if i >= len(parts_b):
+            return 1
+        if parts_a[i] != parts_b[i]:
+            return -1 if parts_a[i] < parts_b[i] else 1
+    for x, y in zip(pa[1:], pb[1:]):  # letter, suffix_rank, suffix_num, revision
+        if x != y:
+            return -1 if x < y else 1
+    return 0
+
+
+def highest_version(versions, scheme="dpkg"):
     import functools
-    return max(versions, key=functools.cmp_to_key(compare_versions))
+    cmp = compare_versions_apk if scheme == "apk" else compare_versions
+    return max(versions, key=functools.cmp_to_key(cmp))
 
 
 # ---------------------------------------------------------------------------
@@ -894,8 +952,9 @@ def parse_grype(data: dict):
         fixed = ""
         if _s(fix.get("state")) == "fixed":
             versions = [x for x in _l(fix.get("versions")) if isinstance(x, str) and x]
+            g_scheme = "apk" if a_type == "apk" else "dpkg"
             fixed = versions[0] if len(versions) == 1 else \
-                (highest_version(versions) if versions else "")
+                (highest_version(versions, scheme=g_scheme) if versions else "")
         locations = [_s(_d(loc).get("path")) for loc in _l(a.get("locations"))]
         location = next((p for p in locations if p), None)
         _add_finding(
@@ -952,7 +1011,7 @@ def _osv_severity(vuln):
     return "UNKNOWN"
 
 
-def _osv_fixed_version(vuln):
+def _osv_fixed_version(vuln, scheme="dpkg"):
     """Highest 'fixed' event across affected ranges."""
     fixes = []
     for aff in _l(vuln.get("affected")):
@@ -961,7 +1020,7 @@ def _osv_fixed_version(vuln):
                 f = _s(_d(ev).get("fixed"))
                 if f:
                     fixes.append(f)
-    return highest_version(fixes) if fixes else ""
+    return highest_version(fixes, scheme=scheme) if fixes else ""
 
 
 def parse_osv(data: dict, os_override: str = None):
@@ -988,6 +1047,7 @@ def parse_osv(data: dict, os_override: str = None):
                 ecosystem = OSV_LANG_ECOSYSTEMS.get(eco_base)
                 if not ecosystem:
                     unknown_eco = eco_raw or "unknown"
+            fix_scheme = "apk" if eco_base == "alpine" else "dpkg"
             for v in _l(p.get("vulnerabilities")):
                 if not isinstance(v, dict):
                     continue
@@ -995,7 +1055,7 @@ def parse_osv(data: dict, os_override: str = None):
                 _add_finding(
                     parsed, pkg=_s(pkg.get("name")),
                     installed=_s(pkg.get("version")) or None,
-                    fixed=_osv_fixed_version(v),
+                    fixed=_osv_fixed_version(v, scheme=fix_scheme),
                     severity=_osv_severity(v),
                     vuln_id=_s(v.get("id")),
                     references=[r for r in refs if r],
@@ -1280,13 +1340,16 @@ def parse_scan_file(path, input_fmt="auto", os_override=None):
 def build_plan(parsed, min_severity="UNKNOWN", context="auto", eol_fn=detect_eol):
     pkg_manager = detect_pkg_manager(parsed["family"], parsed["os_name"])
     threshold = SEVERITY_ORDER.get(min_severity.upper(), 0)
+    # apk (Alpine/Wolfi/Chainguard) orders pre-release suffixes differently
+    # from dpkg — pick the OS-package fix with the matching scheme (#3).
+    os_scheme = "apk" if pkg_manager == "apk" else "dpkg"
 
     # Per-package items (kept for JSON consumers / tests)
     items = []
     for pkg, f in sorted(parsed["findings"].items()):
         if SEVERITY_ORDER.get(f["max_severity"], 0) < threshold:
             continue
-        target_version = highest_version(f["fixed_versions"])
+        target_version = highest_version(f["fixed_versions"], scheme=os_scheme)
         items.append({
             "package": pkg,
             "installed": f["installed"],
