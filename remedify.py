@@ -1782,16 +1782,23 @@ def render_json(plan):
 # ---------------------------------------------------------------------------
 # verify — closed loop: did the fix actually land?
 # ---------------------------------------------------------------------------
-# Diffs a before/after scan pair. Built entirely on compare_versions (the
-# dpkg-correct comparator with the 10k property test) — no new version logic.
-# "remaining" is sub-typed so an operator knows *why* a finding survived.
+# Diffs a before/after scan pair. Version comparison reuses the plan's
+# comparators — dpkg (property-tested vs real dpkg) for most packages, apk for
+# Alpine/Wolfi/Chainguard — selected per finding via its scheme, so verify
+# can't pin an apk release candidate as the fix either (#3). "remaining" is
+# sub-typed so an operator knows *why* a finding survived.
 
 def _flatten_findings(parsed):
-    """(pkg, cve) -> {installed, severity, required, ecosystem}. required is the
-    highest fixed version, or None when no fix exists (unfixed bucket)."""
+    """(pkg, cve) -> {installed, severity, required, ecosystem, scheme}. required
+    is the highest fixed version, or None when no fix exists (unfixed bucket).
+    `scheme` selects the version comparator: apk for Alpine/Wolfi/Chainguard OS
+    packages, else dpkg — so verify honours apk pre-release ordering the same
+    way the plan does (#3)."""
     out = {}
+    os_scheme = "apk" if detect_pkg_manager(parsed.get("family", ""),
+                                            parsed.get("os_name", "")) == "apk" else "dpkg"
 
-    def put(pkg, ecosystem, installed, required, vulns):
+    def put(pkg, ecosystem, installed, required, vulns, scheme="dpkg"):
         for v in vulns:
             cve = v.get("id")
             if not cve:
@@ -1801,16 +1808,19 @@ def _flatten_findings(parsed):
                 "severity": v.get("severity", "UNKNOWN"),
                 "required": required,
                 "ecosystem": ecosystem,
+                "scheme": scheme,
             }
 
-    for pkg, f in parsed["findings"].items():
-        req = highest_version(f["fixed_versions"]) if f["fixed_versions"] else None
-        put(pkg, None, f["installed"], req, f["vulns"])
+    for pkg, f in parsed["findings"].items():  # OS packages
+        req = highest_version(f["fixed_versions"], scheme=os_scheme) if f["fixed_versions"] else None
+        put(pkg, None, f["installed"], req, f["vulns"], scheme=os_scheme)
     for (eco, pkg), a in parsed.get("app", {}).items():
         req = highest_version(a["fixed_versions"]) if a["fixed_versions"] else None
         put(pkg, eco, a["installed"], req, a["vulns"])
     for pkg, u in parsed["unfixed"].items():
-        put(pkg, u.get("ecosystem"), u["installed"], None, u["vulns"])
+        # unfixed holds both OS (ecosystem None) and lang findings
+        s = os_scheme if u.get("ecosystem") is None else "dpkg"
+        put(pkg, u.get("ecosystem"), u["installed"], None, u["vulns"], scheme=s)
     for (eco, pkg), u in parsed.get("unclassified", {}).items():
         req = highest_version(u["fixed_versions"]) if u["fixed_versions"] else None
         put(pkg, eco, u["installed"], req, u["vulns"])
@@ -1821,9 +1831,12 @@ def _classify(before, after):
     """Return (category, reason, detail) for a (pkg,cve) present in both."""
     bi, ai = before["installed"], after["installed"]
     required = after["required"] or before["required"]
+    # both entries are the same package, so they share a scheme; prefer after's
+    scheme = after.get("scheme") or before.get("scheme") or "dpkg"
+    cmp = compare_versions_apk if scheme == "apk" else compare_versions
 
     # fix version exists and we're at/above it, yet still flagged
-    if required and ai and compare_versions(ai, required) >= 0:
+    if required and ai and cmp(ai, required) >= 0:
         return ("anomaly", "installed_at_or_above_fix",
                 f"installed {ai} ≥ fix {required}, still reported "
                 f"(scanner cache / version-string mismatch?)")
@@ -1834,9 +1847,9 @@ def _classify(before, after):
     if before["required"] is None and after["required"] is not None:
         return ("remaining", "now_fixable",
                 f"fix newly published — was unfixable at baseline; upgrade to {required}")
-    if ai and bi and compare_versions(ai, bi) < 0:
+    if ai and bi and cmp(ai, bi) < 0:
         return ("remaining", "regressed", f"version went backwards: {ai}")
-    if ai and bi and compare_versions(ai, bi) == 0:
+    if ai and bi and cmp(ai, bi) == 0:
         return ("remaining", "untouched", f"still {ai} (fix {required})")
     return ("remaining", "upgraded_but_short",
             f"upgraded to {ai} but need {required}")

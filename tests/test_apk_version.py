@@ -121,5 +121,52 @@ class TestApkPlanPicksRelease(unittest.TestCase):
         self.assertNotIn("_rc1", step["command"])
 
 
+class TestApkVerifyPath(unittest.TestCase):
+    """Regression (#3, reopened): the verify path must also use apk ordering.
+    The first fix covered the plan but left verify on dpkg, so verify pinned the
+    _rc as `required` and told an operator at the real fix they were still short.
+    """
+
+    @staticmethod
+    def _alpine(installed):
+        return {"ArtifactName": "img:v1",
+                "Metadata": {"OS": {"Family": "alpine", "Name": "3.19"}},
+                "Results": [{"Class": "os-pkgs", "Vulnerabilities": [
+                    {"VulnerabilityID": "CVE-2024-7777", "PkgName": "libfoo",
+                     "InstalledVersion": installed,
+                     "FixedVersion": "1.5.0_rc1, 1.5.0", "Severity": "HIGH"}]}]}
+
+    def _verify(self, before_inst, after_inst):
+        return remedify.verify(remedify.parse_trivy(self._alpine(before_inst)),
+                               remedify.parse_trivy(self._alpine(after_inst)))
+
+    def test_required_is_release_not_rc(self):
+        v = self._verify("1.4.0-r0", "1.5.0")
+        row = (v["remaining"] + v["anomalies"])[0]
+        self.assertEqual(row["required"], "1.5.0")  # not 1.5.0_rc1
+
+    def test_host_at_real_fix_is_not_reported_short(self):
+        # installed == real fix, still scanned -> anomaly (at/above fix), and
+        # explicitly NOT "upgraded_but_short" (the dpkg-path bug)
+        v = self._verify("1.4.0-r0", "1.5.0")
+        row = (v["remaining"] + v["anomalies"])[0]
+        self.assertEqual(row["reason"], "installed_at_or_above_fix")
+
+    def test_flatten_marks_apk_scheme(self):
+        flat = remedify._flatten_findings(remedify.parse_trivy(self._alpine("1.4.0-r0")))
+        entry = flat[("libfoo", "CVE-2024-7777")]
+        self.assertEqual(entry["scheme"], "apk")
+        self.assertEqual(entry["required"], "1.5.0")
+
+    def test_ubuntu_still_dpkg(self):
+        # non-apk targets keep dpkg semantics (no regression)
+        deb = {"ArtifactName": "img", "Metadata": {"OS": {"Family": "ubuntu", "Name": "22.04"}},
+               "Results": [{"Class": "os-pkgs", "Vulnerabilities": [
+                   {"VulnerabilityID": "C1", "PkgName": "bar", "InstalledVersion": "1.0",
+                    "FixedVersion": "1.2", "Severity": "HIGH"}]}]}
+        flat = remedify._flatten_findings(remedify.parse_trivy(deb))
+        self.assertEqual(flat[("bar", "C1")]["scheme"], "dpkg")
+
+
 if __name__ == "__main__":
     unittest.main()
