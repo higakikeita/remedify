@@ -6,13 +6,14 @@
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](remedify.py)
 [![PyPI](https://img.shields.io/pypi/v/remedify.svg)](https://pypi.org/project/remedify/)
 
-> **copa patches container images. remedify tells you how to patch everything else.**
+> **remedify is a last-mile vulnerability remediation planner.**
+> Detection is a solved problem — plenty of scanners tell you *what* is vulnerable and *which* version fixes it. What every team gets stuck on next is _"how do I actually run that fix, here, on this OS?"_ remedify answers that — deterministically, for whatever scanner you already run.
 
 ![remedify demo](docs/remedify-demo.gif)
 
 _90-second walkthrough: a Trivy/Sysdig finding → remedify → the exact `apt`/`dnf`/`apk` command → rescan & verify. Re-record with [`demo/demo.sh`](demo/demo.sh)._
 
-Vulnerability scanners are great at telling you *what* is vulnerable and *which version* fixes it. They are terrible at telling you *what command to run*. After triage, every team asks the same question: "So how exactly do I fix this on my OS?" — and the answer today is "go read the Ubuntu/RHEL/Amazon Linux docs."
+After triage, every team hits the same wall: _"so what exact command do I run, on **this** OS, for each of these?"_ — and today the answer is "go read the Ubuntu / RHEL / Amazon Linux docs, package by package, by hand."
 
 **remedify** closes that last-mile gap. It takes vulnerability scan results (Trivy, Grype, OSV-Scanner, or Sysdig — API, JSON, and CSV) and generates concrete, distro-aware remediation:
 
@@ -33,6 +34,13 @@ $ remedify scan.json
 - ⚠️ Restart services that link against OpenSSL (nginx, sshd, etc.).
 - Advisories: [Ubuntu USN](https://ubuntu.com/security/notices/USN-6986-1)
 ```
+
+## Why remedify
+
+- **It's its own category — not a scanner add-on.** Input is abstracted across Trivy, Grype, OSV-Scanner, and Sysdig (JSON / CSV / API), plus an MCP server: the scanner is interchangeable, the *plan* is the product. remedify is not "a Trivy tool".
+- **Deterministic, never generative.** remedify never asks an AI to *invent* a fix. Every command is derived from the scanner's fix version and distro packaging rules, so the same input always yields the same plan. AI's job is to *explain* the plan and wire it into your workflow — never to guess the patch. That division of labor is the durable differentiator, and why you can paste the output straight into a change ticket.
+- **Built for the people who triage findings** — Security / SOC / vulnerability-management teams who need to hand developers or SREs the exact remediation, not another list of CVEs.
+- **Scope, honestly.** copa patches container images in place; remedify tells you how to patch *everything else* — hosts, VMs, and images alike — and stops at the plan. It never applies changes itself.
 
 ## Quick start
 
