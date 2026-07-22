@@ -54,6 +54,11 @@ python3 remedify.py scan.json                             # Markdown report
 python3 remedify.py scan.json --format shell > fix.sh     # reviewable fix script
 python3 remedify.py scan.json --min-severity HIGH --format json   # for CI/automation
 
+# Silence findings you've already triaged (kept out of the plan, listed as
+# Suppressed with a reason — never silently dropped):
+python3 remedify.py scan.json --vex openvex.json          # OpenVEX not_affected/fixed
+python3 remedify.py scan.json --ignore .remedifyignore    # CVE- or package-scoped
+
 # 2. Straight from the Sysdig VM API (needs a Secure API token)
 export SYSDIG_API_TOKEN=<token>
 python3 remedify.py --from-sysdig --api-url https://us2.app.sysdig.com
@@ -252,6 +257,7 @@ Each stage is pluggable: new scanners are parsers, new distros are generators, n
 - **Language packages**: pip/npm/Maven/Go/etc. findings surfaced as upgrade-and-rebuild steps (OS package managers can't fix them)
 - **Outputs**: markdown, shell script, JSON, Ansible playbook
 - **verify**: closed-loop before/after diff — proof a fix actually landed, with a CI gate (`--fail-on`)
+- **Suppression**: OpenVEX (`--vex`) and ignore-lists (`--ignore`) keep already-triaged findings out of the plan — decided mechanically, never by an AI, and surfaced with their reason (never silently dropped)
 - **EOL detection** and **prioritization** (in-use / exploitable / KEV)
 - **MCP server** (`remedify_mcp.py`) so AI agents can call it
 - **Trivy plugin**: `trivy remedify` / `--output plugin=remedify`

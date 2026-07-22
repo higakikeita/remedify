@@ -1337,6 +1337,181 @@ def parse_scan_file(path, input_fmt="auto", os_override=None):
     return parsed
 
 
+# ---------------------------------------------------------------------------
+# Suppression — VEX / ignore-list (ADR-0009 "A")
+# ---------------------------------------------------------------------------
+# A planner that re-surfaces findings a team has already judged (not-affected,
+# risk-accepted, false-positive) gets abandoned as noise. Suppression is
+# decided MECHANICALLY from operator-supplied inputs (OpenVEX, .remedifyignore)
+# — never by an LLM. Suppressed findings are NOT dropped: they move to a
+# 'suppressed' bucket with a reason (same principle as never-silently-drop, #2).
+
+_VULN_ID_RE = re.compile(
+    r"^(CVE|GHSA|ALAS[0-9]*|RHSA|RHBA|DSA|USN|ELSA|RUSTSEC|PYSEC|GO|OSV)-", re.I)
+
+
+def _looks_like_vuln_id(tok):
+    return bool(_VULN_ID_RE.match(tok))
+
+
+def _purl_name(purl):
+    """'pkg:deb/ubuntu/openssl@1.1.1?arch=amd64' -> 'openssl'; None if not a purl."""
+    if isinstance(purl, dict):
+        purl = purl.get("@id") or purl.get("purl") or ""
+    if not isinstance(purl, str) or not purl.startswith("pkg:"):
+        return None
+    body = purl[len("pkg:"):].split("@", 1)[0].split("?", 1)[0]
+    seg = [s for s in body.split("/") if s]
+    return seg[-1] if seg else None
+
+
+class Suppressor:
+    """Deterministic finding suppression. Match precedence: (cve,pkg) > pkg > cve."""
+
+    def __init__(self):
+        self._cve_pkg = {}   # (CVE_UPPER, pkg) -> (reason, source)
+        self._pkg = {}       # pkg -> (reason, source)
+        self._cve = {}       # CVE_UPPER -> (reason, source)
+
+    def __bool__(self):
+        return bool(self._cve_pkg or self._pkg or self._cve)
+
+    def add_cve(self, cve, reason, source):
+        if cve:
+            self._cve.setdefault(cve.upper(), (reason, source))
+
+    def add_pkg(self, pkg, reason, source):
+        if pkg:
+            self._pkg.setdefault(pkg, (reason, source))
+
+    def add_cve_pkg(self, cve, pkg, reason, source):
+        if cve and pkg:
+            self._cve_pkg.setdefault((cve.upper(), pkg), (reason, source))
+
+    def match(self, pkg, cve):
+        """Return (reason, source) for a (pkg, cve) finding, or None."""
+        c = (cve or "").upper()
+        if c and pkg and (c, pkg) in self._cve_pkg:
+            return self._cve_pkg[(c, pkg)]
+        if pkg and pkg in self._pkg:
+            return self._pkg[pkg]
+        if c and c in self._cve:
+            return self._cve[c]
+        return None
+
+
+def load_vex(path, sup):
+    """OpenVEX: statements with status not_affected/fixed suppress the matching
+    (vulnerability, product) findings. affected/under_investigation are left in
+    the plan — they are still actionable."""
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    for st in _l(doc.get("statements")):
+        if not isinstance(st, dict):
+            continue
+        status = _s(st.get("status")).lower()
+        if status not in ("not_affected", "fixed"):
+            continue
+        v = st.get("vulnerability")
+        cve = _s(v.get("name") or v.get("@id")) if isinstance(v, dict) else _s(v)
+        if not cve:
+            continue
+        why = (_s(st.get("justification")) or _s(st.get("impact_statement"))
+               or _s(st.get("statement")) or status)
+        reason = f"VEX {status}: {why}"
+        names = [n for n in (_purl_name(p) for p in _l(st.get("products"))) if n]
+        if names:
+            for n in names:
+                sup.add_cve_pkg(cve, n, reason, "vex")
+        else:
+            # no parseable product scope: trust the operator assertion by CVE
+            sup.add_cve(cve, reason, "vex")
+
+
+def load_ignore(path, sup):
+    """.remedifyignore, one rule per line (`#` starts an optional reason):
+        CVE-2024-1234                 # any package
+        CVE-2024-5678 openssl         # scoped to a package
+        pkg:vim   (or a bare name)    # the whole package
+    """
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            code, _, comment = raw.partition("#")
+            toks = code.split()
+            if not toks:
+                continue
+            reason = comment.strip() or "ignore-list"
+            first = toks[0]
+            if first.startswith("pkg:"):
+                sup.add_pkg(first[len("pkg:"):], f"ignored: {reason}", "ignore")
+            elif _looks_like_vuln_id(first):
+                if len(toks) >= 2 and ":" not in toks[1]:
+                    sup.add_cve_pkg(first, toks[1], f"ignored: {reason}", "ignore")
+                else:
+                    sup.add_cve(first, f"ignored: {reason}", "ignore")
+            else:
+                sup.add_pkg(first, f"ignored: {reason}", "ignore")
+
+
+def build_suppressor(vex_paths=None, ignore_paths=None):
+    sup = Suppressor()
+    for p in vex_paths or []:
+        load_vex(p, sup)
+    for p in ignore_paths or []:
+        load_ignore(p, sup)
+    return sup
+
+
+def _max_severity(vulns):
+    best = "UNKNOWN"
+    for v in vulns:
+        if SEVERITY_ORDER.get(v.get("severity", "UNKNOWN"), 0) > SEVERITY_ORDER.get(best, 0):
+            best = v.get("severity", "UNKNOWN")
+    return best
+
+
+def apply_suppressions(parsed, sup):
+    """Move suppressed vulns out of the actionable buckets into
+    parsed['suppressed'] (with reason). A package whose vulns are ALL suppressed
+    is removed entirely (no command is generated); partial suppression keeps the
+    remaining vulns and recomputes the package's max severity."""
+    parsed.setdefault("suppressed", [])
+    if not sup:
+        return parsed
+
+    buckets = [("findings", parsed.get("findings", {}), False),
+               ("unfixed", parsed.get("unfixed", {}), False),
+               ("app", parsed.get("app", {}), True),
+               ("unclassified", parsed.get("unclassified", {}), True)]
+    for _name, bucket, eco_keyed in buckets:
+        for key in list(bucket.keys()):
+            entry = bucket[key]
+            if eco_keyed:
+                eco, pkg = key
+            else:
+                pkg, eco = key, entry.get("ecosystem")
+            kept = []
+            for v in entry["vulns"]:
+                hit = sup.match(pkg, v.get("id"))
+                if hit:
+                    reason, source = hit
+                    parsed["suppressed"].append({
+                        "package": pkg, "ecosystem": eco, "cve": v.get("id"),
+                        "severity": v.get("severity", "UNKNOWN"),
+                        "reason": reason, "source": source,
+                    })
+                else:
+                    kept.append(v)
+            if not kept:
+                del bucket[key]
+            elif len(kept) != len(entry["vulns"]):
+                entry["vulns"] = kept
+                entry["max_severity"] = _max_severity(kept)
+    parsed["suppressed"].sort(
+        key=lambda r: (-SEVERITY_ORDER.get(r["severity"], 0), r["package"], _s(r["cve"])))
+    return parsed
+
+
 def build_plan(parsed, min_severity="UNKNOWN", context="auto", eol_fn=detect_eol):
     pkg_manager = detect_pkg_manager(parsed["family"], parsed["os_name"])
     threshold = SEVERITY_ORDER.get(min_severity.upper(), 0)
@@ -1473,6 +1648,7 @@ def build_plan(parsed, min_severity="UNKNOWN", context="auto", eol_fn=detect_eol
         "app_steps": app_steps,
         "unfixed": unfixed,
         "unclassified": unclassified,
+        "suppressed": parsed.get("suppressed", []),
         "rejected": parsed.get("rejected", []),
     }
 
@@ -1579,6 +1755,9 @@ def render_markdown(plan):
     if plan.get("unclassified"):
         lines.append(f"- **Unclassified (manual review)**: "
                      f"{len(plan['unclassified'])} packages")
+    if plan.get("suppressed"):
+        lines.append(f"- **Suppressed (already triaged)**: "
+                     f"{len(plan['suppressed'])} findings")
     lines.append("")
     if plan["eol_warning"]:
         lines.append(f"> ⚠️ **EOL**: {plan['eol_warning']}")
@@ -1685,6 +1864,21 @@ def render_markdown(plan):
             lines.append(line)
         lines.append("")
 
+    if plan.get("suppressed"):
+        lines.append("## 🔕 Suppressed (already triaged)")
+        lines.append("")
+        lines.append("These findings matched a VEX statement (`--vex`) or an "
+                     "ignore rule (`--ignore`) you supplied, so they were **kept "
+                     "out of the actionable plan above**. They are listed here — "
+                     "not silently dropped — with the reason, so the suppression "
+                     "stays auditable.")
+        lines.append("")
+        for s in plan["suppressed"]:
+            eco = f" ({s['ecosystem']})" if s.get("ecosystem") else ""
+            lines.append(f"- **{s['package']}**{eco} `{s['cve']}` {s['severity']} "
+                         f"— {s['reason']} _[{s['source']}]_")
+        lines.append("")
+
     if plan.get("rejected"):
         lines.append("## ⛔ Rejected findings (unsafe scan input)")
         lines.append("")
@@ -1769,6 +1963,12 @@ def render_shell(plan):
             lines.append(f"# {u['package']} ({u['ecosystem']}) [{u['severity']}] "
                          f"{', '.join(u['cves'])}"
                          f"{': fix ' + u['fix_version'] if u['fix_version'] else ''}")
+        lines.append("")
+    if plan.get("suppressed"):
+        lines.append("# --- Suppressed (VEX/ignore, kept out of the plan) ---")
+        for s in plan["suppressed"]:
+            lines.append(f"# {s['package']} [{s['severity']}] {s['cve']}: "
+                         f"{s['reason']} [{s['source']}]")
         lines.append("")
     if needs_reboot:
         lines.append('echo "One or more updates require a reboot. Schedule one."')
@@ -2036,6 +2236,9 @@ def render_ansible(plan):
         L.append(f"# UNCLASSIFIED (unknown ecosystem, review manually): "
                  f"{u['package']} ({u['ecosystem']}) [{u['severity']}] "
                  f"{', '.join(u['cves'])}")
+    for s in plan.get("suppressed", []):
+        L.append(f"# SUPPRESSED ({s['source']}, kept out of the plan): "
+                 f"{s['package']} [{s['severity']}] {s['cve']} — {s['reason']}")
     for s in plan["app_steps"]:
         L.append(f"# APP DEPENDENCY (fix in source + rebuild): {s['package']} "
                  f"-> {s['fix_version']} ({s['ecosystem']})")
@@ -2129,6 +2332,15 @@ def main():
                     choices=["LOW", "MEDIUM", "HIGH", "CRITICAL"],
                     help="Exit with code 2 if any finding at or above this "
                          "severity exists (CI gate)")
+    ap.add_argument("--vex", action="append", default=None, metavar="FILE",
+                    help="OpenVEX document. Findings marked not_affected/fixed "
+                         "are kept out of the plan and listed as Suppressed "
+                         "(with reason). Repeatable.")
+    ap.add_argument("--ignore", action="append", default=None, metavar="FILE",
+                    help="Ignore-list file (.remedifyignore): CVE- or package-"
+                         "scoped suppression rules. Suppressed findings are "
+                         "surfaced with their reason, never silently dropped. "
+                         "Repeatable.")
     ap.add_argument("--baseline", default=None, metavar="BEFORE_SCAN",
                     help="Verify mode: diff this before-scan against the after-"
                          "scan given as the positional argument, and report "
@@ -2177,6 +2389,11 @@ def main():
             print(f"warning: no OS information for '{parsed['target']}'; pass --os "
                   "(e.g. --os ubuntu:22.04) to generate OS package commands.",
                   file=sys.stderr)
+
+    if args.vex or args.ignore:
+        suppressor = build_suppressor(args.vex, args.ignore)
+        for parsed in parsed_list:
+            apply_suppressions(parsed, suppressor)
 
     eol_fn = detect_eol_live if args.check_eol else detect_eol
     plans = [build_plan(p, args.min_severity, args.context, eol_fn=eol_fn)
